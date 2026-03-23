@@ -62,7 +62,7 @@ function Set-OutputText {
 
 $script:CurrentLanguage = 'pt'
 $script:TranslationsPtToEn = [ordered]@{
-    'EdgeRouter Suite Friendly - WPF Preview v12' = 'EdgeRouter Suite Friendly - WPF Preview v12'
+    'EdgeRouter Suite Friendly - WPF Preview v13 fix2' = 'EdgeRouter Suite Friendly - WPF Preview v13 fix2'
     'Conexão do Roteador' = 'Router Connection'
     'Usuário:' = 'User:'
     'Senha:' = 'Password:'
@@ -136,6 +136,15 @@ $script:TranslationsPtToEn = [ordered]@{
     'Preferir WAN2' = 'Prefer WAN2'
     'Kill switch: se a WAN preferida cair, este IP não usa a WAN de backup' = 'Kill switch: if the preferred WAN fails, this IP will not use the backup WAN'
     'Aplicar política' = 'Apply policy'
+    'Políticas PBR' = 'PBR Policies'
+    'Ler Políticas PBR' = 'Read PBR Policies'
+    'Remover Política Selecionada' = 'Remove Selected Policy'
+    'Descrição' = 'Description'
+    'Regra' = 'Rule'
+    'Tabela' = 'Table'
+    'WAN' = 'WAN'
+    'Carrega as políticas de PBR da chain informada para conferência e remoção.' = 'Loads PBR policies from the selected chain for review and removal.'
+    'Remove a política de PBR selecionada da chain e limpa a tabela se ela não estiver mais em uso.' = 'Removes the selected PBR policy from the chain and clears the table if it is no longer in use.'
     'Modo Saída fixa = prende o IP na WAN informada. Preferir WAN1/WAN2 = tenta usar a WAN escolhida e, sem kill switch, usa a outra como backup.' = 'Fixed output mode = locks the IP to the selected WAN. Prefer WAN1/WAN2 = tries to use the chosen WAN and, without kill switch, uses the other as backup.'
     "Dica: use 'Usar Selecionado no PBR' para preencher o IP a partir da lista de leases abaixo." = "Tip: use 'Use Selected Lease in PBR' to fill the IP from the lease list below."
     'WAN 1:' = 'WAN 1:'
@@ -834,6 +843,7 @@ function Invoke-PbrPreferredPolicyInternal {
     if (-not (Confirm-UiAction $ConfirmLabel)) { return }
 
     $cmds = @(
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall modify $Modify rule $Rule",
         "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete protocols static table $Table route 0.0.0.0/0",
         "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete protocols static table $Table interface-route 0.0.0.0/0"
     )
@@ -863,6 +873,9 @@ function Invoke-PbrPreferredPolicyInternal {
         $out = $out + "`r`n`r`nObservações:`r`n- " + (($notes.ToArray()) -join "`r`n- ")
     }
     Set-OutputText -Target $txtLbOut -Content $out -Title 'Resultado da política preferencial'
+    $script:ConfigCommandsCache = $null
+    Refresh-PbrPolicies
+    if ($txtPbrRule.Text -eq $Rule) { $txtPbrRule.Text = Get-NextAvailablePbrRule -Modify $Modify }
     $logMsg = if ($KillSwitch) { "Política preferencial com kill switch aplicada para $IpAddress em $PreferredWan" } else { "Política preferencial aplicada para ${IpAddress}: $PreferredWan com fallback em $BackupWan" }
     Write-AppLog $logMsg
 }
@@ -881,14 +894,27 @@ function Invoke-PbrCreateInternal {
     if (-not (Test-IPv4Address $IpAddress)) { throw 'IP da máquina inválido.' }
     if ([string]::IsNullOrWhiteSpace($ConfirmLabel)) { $ConfirmLabel = "Criar PBR para $IpAddress via $WanInterface?" }
     if (-not (Confirm-UiAction $ConfirmLabel)) { return }
+
+    $primary = Get-PbrTableDefaultCommands -Table $Table -Interface $WanInterface -Distance 1
     $cmds = @(
-        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set protocols static table $Table interface-route 0.0.0.0/0 next-hop-interface $WanInterface",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall modify $Modify rule $Rule",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete protocols static table $Table route 0.0.0.0/0",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete protocols static table $Table interface-route 0.0.0.0/0"
+    )
+    $cmds += @($primary.Commands)
+    $cmds += @(
         "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall modify $Modify rule $Rule description 'Forcar_Rota_$IpAddress'",
         "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall modify $Modify rule $Rule source address $IpAddress",
         "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall modify $Modify rule $Rule modify table $Table"
     )
     $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason $Reason
+    if ($primary -and $primary.Warning) {
+        $out = $out + "`r`n`r`nObservação:`r`n- " + $primary.Warning
+    }
     Set-OutputText -Target $txtLbOut -Content $out -Title 'Resultado do PBR'
+    $script:ConfigCommandsCache = $null
+    Refresh-PbrPolicies
+    if ($txtPbrRule.Text -eq $Rule) { $txtPbrRule.Text = Get-NextAvailablePbrRule -Modify $Modify }
     Write-AppLog "PBR criado para $IpAddress via $WanInterface"
 }
 
@@ -942,7 +968,7 @@ function Apply-SelectedReservationToDhcpFields {
 function Refresh-LoadBalanceStatus {
     $groups = @(Get-LoadBalanceContext)
     if ($groups.Count -eq 0) {
-        $txtLbSummary.Text = 'Nenhum grupo de load-balance detectado.'
+        Set-OutputText -Target $txtLbOut -Content 'Nenhum grupo de load-balance detectado.' -Title 'Status do balanceamento'
         return
     }
     $groupObj = $groups[0]
@@ -958,9 +984,15 @@ function Refresh-LoadBalanceStatus {
         $txtLbWan2.Text = $ifaces[1].Name
         $txtLbWeight2.Text = $ifaces[1].Weight
     }
-    $txtLbSummary.Text = Format-LoadBalanceSummary -GroupObj $groupObj
+    $summary = Format-LoadBalanceSummary -GroupObj $groupObj
+    try {
+        Refresh-PbrPolicies
+        if (-not $txtPbrRule.Text -or $txtPbrRule.Text -eq '10') { $txtPbrRule.Text = Get-NextAvailablePbrRule -Modify $txtPbrModify.Text.Trim() }
+    } catch {}
     $cmd = "echo '--- WATCHDOG ---'; /opt/vyatta/bin/vyatta-op-cmd-wrapper show load-balance watchdog; echo ''; echo '--- STATUS GERAL ---'; /opt/vyatta/bin/vyatta-op-cmd-wrapper show load-balance status"
-    Set-OutputText -Target $txtLbOut -Content (Invoke-EdgeRouterCommand -Command $cmd) -Title 'Status do balanceamento'
+    $diag = Invoke-EdgeRouterCommand -Command $cmd
+    $combined = $summary + "`r`n`r`n" + (Convert-OutputToText $diag)
+    Set-OutputText -Target $txtLbOut -Content $combined -Title 'Status do balanceamento'
 }
 
 function Refresh-PbrLeaseCandidates {
@@ -970,6 +1002,113 @@ function Refresh-PbrLeaseCandidates {
     $dgPbrLeases.ItemsSource = @($list)
 }
 
+
+function Get-PbrPolicyRules {
+    param([string]$Modify = 'balance')
+    if ([string]::IsNullOrWhiteSpace($Modify)) { $Modify = 'balance' }
+    $cfg = Get-EdgeConfigCommandsText
+    $map = @{}
+    foreach ($line in ($cfg -split "`r?`n")) {
+        if ($line -match "^set firewall modify\s+$([regex]::Escape($Modify))\s+rule\s+(\d+)\s+description\s+'?(.+?)'?$") {
+            $rule = $matches[1]
+            if (-not $map.ContainsKey($rule)) { $map[$rule] = [ordered]@{ Rule=$rule; Modify=$Modify; Description=''; Source=''; Table=''; Wan=''; Kind='' } }
+            $map[$rule].Description = $matches[2].Trim("'")
+            continue
+        }
+        if ($line -match "^set firewall modify\s+$([regex]::Escape($Modify))\s+rule\s+(\d+)\s+source address\s+(\S+)$") {
+            $rule = $matches[1]
+            if (-not $map.ContainsKey($rule)) { $map[$rule] = [ordered]@{ Rule=$rule; Modify=$Modify; Description=''; Source=''; Table=''; Wan=''; Kind='' } }
+            $map[$rule].Source = $matches[2]
+            continue
+        }
+        if ($line -match "^set firewall modify\s+$([regex]::Escape($Modify))\s+rule\s+(\d+)\s+modify table\s+(\d+)$") {
+            $rule = $matches[1]
+            if (-not $map.ContainsKey($rule)) { $map[$rule] = [ordered]@{ Rule=$rule; Modify=$Modify; Description=''; Source=''; Table=''; Wan=''; Kind='' } }
+            $map[$rule].Table = $matches[2]
+            continue
+        }
+    }
+
+    $tableWan = @{}
+    foreach ($line in ($cfg -split "`r?`n")) {
+        if ($line -match '^set protocols static table (\d+) interface-route 0\.0\.0\.0/0 next-hop-interface (\S+)$') {
+            $tableWan[$matches[1]] = $matches[2]
+            continue
+        }
+        if ($line -match '^set protocols static table (\d+) route 0\.0\.0\.0/0 next-hop-interface (\S+)(?: distance \d+)?$') {
+            if (-not $tableWan.ContainsKey($matches[1])) { $tableWan[$matches[1]] = $matches[2] }
+            continue
+        }
+        if ($line -match '^set protocols static table (\d+) route 0\.0\.0\.0/0 next-hop (\S+)(?: distance \d+)?$') {
+            if (-not $tableWan.ContainsKey($matches[1])) { $tableWan[$matches[1]] = 'gateway:' + $matches[2] }
+            continue
+        }
+    }
+
+    $items = New-Object System.Collections.ArrayList
+    foreach ($entry in ($map.GetEnumerator() | Sort-Object {[int]$_.Key})) {
+        $obj = [pscustomobject]$entry.Value
+        if (-not $obj.Source -or -not $obj.Table) { continue }
+        if ($tableWan.ContainsKey($obj.Table)) { $obj.Wan = $tableWan[$obj.Table] }
+        $desc = [string]$obj.Description
+        if ($desc -like 'Forcar_Rota_*') { $obj.Kind = 'FIXA' }
+        elseif ($desc -like 'Preferir_*') { $obj.Kind = 'PREFER' }
+        else { $obj.Kind = 'PBR' }
+        [void]$items.Add($obj)
+    }
+    return @($items)
+}
+
+function Get-NextAvailablePbrRule {
+    param([string]$Modify = 'balance')
+    $rules = @(Get-PbrPolicyRules -Modify $Modify | ForEach-Object { [int]$_.Rule })
+    for ($i = 100; $i -le 199; $i++) {
+        if ($rules -notcontains $i) { return [string]$i }
+    }
+    return [string](([int](($rules | Measure-Object -Maximum).Maximum)) + 1)
+}
+
+function Refresh-PbrPolicies {
+    $modify = $txtPbrModify.Text.Trim()
+    if ([string]::IsNullOrWhiteSpace($modify)) { $modify = 'balance'; $txtPbrModify.Text = $modify }
+    $items = @(Get-PbrPolicyRules -Modify $modify)
+    $dgPbrPolicies.ItemsSource = $items
+    if (-not $txtPbrRule.Text -or $txtPbrRule.Text -eq '10') {
+        $txtPbrRule.Text = Get-NextAvailablePbrRule -Modify $modify
+    }
+    if ($items.Count -eq 0) {
+        Write-AppLog "Nenhuma política PBR encontrada na chain $modify"
+    } else {
+        Write-AppLog "Políticas PBR carregadas na chain ${modify}: $($items.Count)"
+    }
+}
+
+function Remove-PbrPolicyInternal {
+    param([psobject]$Policy)
+    if ($null -eq $Policy) { throw 'Selecione uma política PBR para remover.' }
+    $rule = [string]$Policy.Rule
+    $modify = [string]$Policy.Modify
+    $table = [string]$Policy.Table
+    $ip = [string]$Policy.Source
+    if (-not (Confirm-UiAction "Remover a política PBR da regra $rule para o IP $ip?")) { return }
+
+    $cmds = @("/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall modify $modify rule $rule")
+    $others = @(Get-PbrPolicyRules -Modify $modify | Where-Object { $_.Rule -ne $rule -and $_.Table -eq $table })
+    if ($table -and $others.Count -eq 0) {
+        $cmds += @(
+            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete protocols static table $table route 0.0.0.0/0",
+            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete protocols static table $table interface-route 0.0.0.0/0"
+        )
+    }
+    $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "PBR_DELETE_$rule"
+    Set-OutputText -Target $txtLbOut -Content $out -Title 'Remoção de política PBR'
+    $script:ConfigCommandsCache = $null
+    Refresh-PbrPolicies
+    if ($txtPbrRule.Text -eq $rule) { $txtPbrRule.Text = Get-NextAvailablePbrRule -Modify $modify }
+    Write-AppLog "Política PBR removida: regra $rule / IP $ip / chain $modify"
+}
+
+
 function Refresh-DnsBlockedDomains {
     $lstDnsDomains.ItemsSource = @(Get-DnsBlockedDomains)
     $txtDnsOut.Text = (($lstDnsDomains.ItemsSource | ForEach-Object { $_ }) -join "`r`n")
@@ -978,7 +1117,7 @@ function Refresh-DnsBlockedDomains {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="EdgeRouter Suite Friendly - WPF Preview v12"
+        Title="EdgeRouter Suite Friendly - WPF Preview v13 fix2"
         Width="1320" Height="920" MinWidth="1180" MinHeight="760"
         WindowStartupLocation="CenterScreen" Background="#FFF4F6F8">
     <DockPanel LastChildFill="True" Margin="10">
@@ -1377,7 +1516,7 @@ function Refresh-DnsBlockedDomains {
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Row="0" Grid.ColumnSpan="6" Text="Forçar rota por IP (PBR)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Rule ID:" VerticalAlignment="Center"/>
-                            <TextBox x:Name="txtPbrRule" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,10,8" Text="10"/>
+                            <TextBox x:Name="txtPbrRule" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,10,8" Text="100"/>
                             <TextBlock Grid.Row="1" Grid.Column="2" Text="IP da máquina:" VerticalAlignment="Center"/>
                             <TextBox x:Name="txtPbrIP" Grid.Row="1" Grid.Column="3" Height="28" Margin="6,0,10,8"/>
                             <TextBlock Grid.Row="1" Grid.Column="4" Text="Tabela:" VerticalAlignment="Center"/>
@@ -1400,27 +1539,20 @@ function Refresh-DnsBlockedDomains {
                     </Border>
 
                     <Border Grid.Row="2" Grid.ColumnSpan="3" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
-                        <Grid>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <WrapPanel Margin="0,0,0,8">
-                                <TextBlock Text="WAN 1:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="txtLbWan1" Width="100" Height="28" Margin="0,0,12,8" Text="eth0"/>
-                                <TextBlock Text="WAN 2:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="txtLbWan2" Width="100" Height="28" Margin="0,0,12,8" Text="eth1"/>
-                                <TextBlock Text="Peso WAN1:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="txtLbWeight1" Width="70" Height="28" Margin="0,0,12,8" Text="50"/>
-                                <TextBlock Text="Peso WAN2:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="txtLbWeight2" Width="70" Height="28" Margin="0,0,12,8" Text="50"/>
-                                <Button x:Name="btnLbPreset5050" Content="50/50" Width="80" Height="34" Margin="0,0,8,8" Background="#F3E58A"/>
-                                <Button x:Name="btnLbApplyWeights" Content="Aplicar Pesos" Width="140" Height="34" Margin="0,0,8,8" Background="#47C37C"/>
-                                <Button x:Name="btnLbFailoverWan1" Content="WAN1 Principal" Width="150" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
-                                <Button x:Name="btnLbFailoverWan2" Content="WAN2 Principal" Width="150" Height="34" Background="#8FD3FF"/>
-                            </WrapPanel>
-                            <TextBox x:Name="txtLbSummary" Grid.Row="1" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Auto" IsReadOnly="True" Height="78"/>
-                        </Grid>
+                        <WrapPanel Margin="0">
+                            <TextBlock Text="WAN 1:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="txtLbWan1" Width="100" Height="28" Margin="0,0,12,0" Text="eth0"/>
+                            <TextBlock Text="WAN 2:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="txtLbWan2" Width="100" Height="28" Margin="0,0,12,0" Text="eth1"/>
+                            <TextBlock Text="Peso WAN1:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="txtLbWeight1" Width="70" Height="28" Margin="0,0,12,0" Text="50"/>
+                            <TextBlock Text="Peso WAN2:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBox x:Name="txtLbWeight2" Width="70" Height="28" Margin="0,0,12,0" Text="50"/>
+                            <Button x:Name="btnLbPreset5050" Content="50/50" Width="80" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                            <Button x:Name="btnLbApplyWeights" Content="Aplicar Pesos" Width="140" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
+                            <Button x:Name="btnLbFailoverWan1" Content="WAN1 Principal" Width="150" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                            <Button x:Name="btnLbFailoverWan2" Content="WAN2 Principal" Width="150" Height="34" Background="#8FD3FF"/>
+                        </WrapPanel>
                     </Border>
 
                     <Grid Grid.Row="4" Grid.ColumnSpan="3">
@@ -1430,25 +1562,50 @@ function Refresh-DnsBlockedDomains {
                             <ColumnDefinition Width="1*"/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
-                            <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="*"/>
-                                </Grid.RowDefinitions>
-                                <WrapPanel Margin="0,0,0,8">
-                                    <TextBlock Text="Leases para usar no PBR" FontSize="16" FontWeight="SemiBold" Margin="0,0,12,0"/>
-                                    <Button x:Name="btnPbrLoadLeases" Content="Ler Leases do PBR" Width="160" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
-                                    <Button x:Name="btnPbrUseLease" Content="Usar Selecionado no PBR" Width="190" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
-                                </WrapPanel>
-                                <DataGrid x:Name="dgPbrLeases" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" FontFamily="Consolas" FontSize="13">
-                                    <DataGrid.Columns>
-                                        <DataGridTextColumn Header="Tipo" Binding="{Binding Tipo}" Width="60"/>
-                                        <DataGridTextColumn Header="IP" Binding="{Binding IP}" Width="120"/>
-                                        <DataGridTextColumn Header="MAC" Binding="{Binding MAC}" Width="160"/>
-                                        <DataGridTextColumn Header="Nome" Binding="{Binding Nome}" Width="*"/>
-                                    </DataGrid.Columns>
-                                </DataGrid>
-                            </Grid>
+                            <TabControl>
+                                <TabItem Header="Leases para usar no PBR">
+                                    <Grid Margin="6">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <WrapPanel Margin="0,0,0,8">
+                                            <Button x:Name="btnPbrLoadLeases" Content="Ler Leases do PBR" Width="160" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                                            <Button x:Name="btnPbrUseLease" Content="Usar Selecionado no PBR" Width="190" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                                        </WrapPanel>
+                                        <DataGrid x:Name="dgPbrLeases" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" FontFamily="Consolas" FontSize="13">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="Tipo" Binding="{Binding Tipo}" Width="60"/>
+                                                <DataGridTextColumn Header="IP" Binding="{Binding IP}" Width="120"/>
+                                                <DataGridTextColumn Header="MAC" Binding="{Binding MAC}" Width="160"/>
+                                                <DataGridTextColumn Header="Nome" Binding="{Binding Nome}" Width="*"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </Grid>
+                                </TabItem>
+                                <TabItem Header="Políticas PBR">
+                                    <Grid Margin="6">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="*"/>
+                                        </Grid.RowDefinitions>
+                                        <WrapPanel Margin="0,0,0,8">
+                                            <Button x:Name="btnPbrReadPolicies" Content="Ler Políticas PBR" Width="160" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                                            <Button x:Name="btnPbrRemovePolicy" Content="Remover Política Selecionada" Width="210" Height="34" Margin="0,0,8,0" Background="#F28585"/>
+                                        </WrapPanel>
+                                        <DataGrid x:Name="dgPbrPolicies" Grid.Row="1" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" FontFamily="Consolas" FontSize="13">
+                                            <DataGrid.Columns>
+                                                <DataGridTextColumn Header="Regra" Binding="{Binding Rule}" Width="70"/>
+                                                <DataGridTextColumn Header="IP" Binding="{Binding Source}" Width="120"/>
+                                                <DataGridTextColumn Header="Tabela" Binding="{Binding Table}" Width="70"/>
+                                                <DataGridTextColumn Header="WAN" Binding="{Binding Wan}" Width="110"/>
+                                                <DataGridTextColumn Header="Tipo" Binding="{Binding Kind}" Width="70"/>
+                                                <DataGridTextColumn Header="Descrição" Binding="{Binding Description}" Width="*"/>
+                                            </DataGrid.Columns>
+                                        </DataGrid>
+                                    </Grid>
+                                </TabItem>
+                            </TabControl>
                         </Border>
                         <Border Grid.Column="2" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
                             <Grid>
@@ -1585,7 +1742,7 @@ $names = @(
     'btnDhcpLer','btnDhcpLerReservas','dgDhcpLeases','dgDhcpReservations','txtDhcpOut','txtPool','txtSubnet','txtHost','txtMac','txtIpFix','btnUsarLease','btnCriarReserva','btnRemoverReserva','btnLimparDhcp',
     'txtRuleNat','txtInIf','txtPortExt','txtIPInt','txtPortInt','cmbNatProto','txtDescNat','btnNatListar','btnNatCriar','txtNatOut',
     'tabFwSub','txtFwName','txtFwRule','cmbFwAction','txtFwSource','txtFwDesc','btnFwListar','btnFwCriar','txtFwOut','txtQosPolicy','txtQosIface','txtQosDown','txtQosUp','btnQosPresetDefault','btnQosPresetCalls','btnQosPresetMeet','btnQosPresetGames','btnQosRead','btnQosApply','btnQosRemove','txtQosOut',
-    'txtLbGroup','btnLbStatus','btnStickyOn','btnStickyOff','txtPbrRule','txtPbrIP','txtPbrWan','txtPbrTable','txtPbrModify','cmbPbrMode','btnPbrApply','chkPbrKillSwitch','txtLbWan1','txtLbWan2','txtLbWeight1','txtLbWeight2','btnLbPreset5050','btnLbApplyWeights','btnLbFailoverWan1','btnLbFailoverWan2','txtLbSummary','btnPbrLoadLeases','btnPbrUseLease','dgPbrLeases','txtLbOut',
+    'txtLbGroup','btnLbStatus','btnStickyOn','btnStickyOff','txtPbrRule','txtPbrIP','txtPbrWan','txtPbrTable','txtPbrModify','cmbPbrMode','btnPbrApply','chkPbrKillSwitch','txtLbWan1','txtLbWan2','txtLbWeight1','txtLbWeight2','btnLbPreset5050','btnLbApplyWeights','btnLbFailoverWan1','btnLbFailoverWan2','btnPbrLoadLeases','btnPbrUseLease','btnPbrReadPolicies','btnPbrRemovePolicy','dgPbrLeases','dgPbrPolicies','txtLbOut',
     'txtDnsDomain','btnDnsReadBlocked','btnBlockSite','btnUnblockSite','btnDnsRulesList','lstDnsDomains','txtDnsOut','txtDnsLan','txtDnsRouterIp','txtDnsHijackRule','btnDnsHijackOn','btnDnsHijackOff','txtDohRule','btnDohOn','btnDohOff',
     'txtToolHost','btnPing','btnDnsLookup','btnBackup','btnOpenLogs','txtLog'
 )
@@ -1740,6 +1897,20 @@ $btnStickyOff.Add_Click({
 
 $btnPbrLoadLeases.Add_Click({ try { Refresh-DhcpLeases; Refresh-DhcpReservations; Refresh-PbrLeaseCandidates } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
 $btnPbrUseLease.Add_Click({ if ($dgPbrLeases.SelectedItem) { $txtPbrIP.Text = [string]$dgPbrLeases.SelectedItem.IP } })
+$btnPbrReadPolicies.Add_Click({ try { Refresh-PbrPolicies } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnPbrRemovePolicy.Add_Click({ try { if ($dgPbrPolicies.SelectedItem) { Remove-PbrPolicyInternal -Policy $dgPbrPolicies.SelectedItem } else { throw 'Selecione uma política PBR para remover.' } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$dgPbrPolicies.Add_SelectionChanged({
+    try {
+        $item = $dgPbrPolicies.SelectedItem
+        if ($item) {
+            $txtPbrRule.Text = [string]$item.Rule
+            $txtPbrIP.Text = [string]$item.Source
+            $txtPbrTable.Text = [string]$item.Table
+            $txtPbrModify.Text = [string]$item.Modify
+            if ($item.Wan -and ($item.Wan -notlike 'gateway:*')) { $txtPbrWan.Text = [string]$item.Wan }
+        }
+    } catch {}
+})
 
 $cmbPbrMode.Add_SelectionChanged({
     try {
@@ -2057,6 +2228,8 @@ $btnLbFailoverWan1.ToolTip = 'Deixa a WAN1 como principal e a WAN2 como backup.'
 $btnLbFailoverWan2.ToolTip = 'Deixa a WAN2 como principal e a WAN1 como backup.'
 $cmbPbrMode.ToolTip = 'Escolha entre saída fixa ou preferência por WAN1/WAN2 com fallback opcional.'
 $btnPbrApply.ToolTip = 'Aplica a política escolhida para o IP informado.'
+$btnPbrReadPolicies.ToolTip = 'Carrega as políticas de PBR da chain informada para conferência e remoção.'
+$btnPbrRemovePolicy.ToolTip = 'Remove a política de PBR selecionada da chain e limpa a tabela se ela não estiver mais em uso.'
 $btnNatListar.ToolTip = 'Lista o port-forward atual do roteador.'
 $btnNatCriar.ToolTip = 'Cria uma regra de port-forward usando os campos preenchidos.'
 $btnFwListar.ToolTip = 'Lista as regras da chain informada e abre a subaba de saída.'
@@ -2075,6 +2248,5 @@ $btnDohOn.ToolTip = 'Ativa um bloqueio básico de DoH para endpoints comuns.'
 $btnDohOff.ToolTip = 'Remove o bloqueio básico de DoH configurado pelo app.'
 
 Update-UiLanguage 'pt'
-Write-AppLog 'Protótipo WPF v12 carregado. Interface agora pode alternar entre Português e Inglês.'
+Write-AppLog 'Protótipo WPF v13 carregado. Interface agora pode alternar entre Português e Inglês.'
 $window.ShowDialog() | Out-Null
-
