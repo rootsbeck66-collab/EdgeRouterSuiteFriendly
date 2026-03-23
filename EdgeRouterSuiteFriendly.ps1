@@ -59,6 +59,247 @@ function Set-OutputText {
     $Target.ScrollToHome()
 }
 
+
+$script:CurrentLanguage = 'pt'
+$script:TranslationsPtToEn = [ordered]@{
+    'EdgeRouter Suite Friendly - WPF Preview v12' = 'EdgeRouter Suite Friendly - WPF Preview v12'
+    'Conexão do Roteador' = 'Router Connection'
+    'Usuário:' = 'User:'
+    'Senha:' = 'Password:'
+    'Testar SSH' = 'Test SSH'
+    'O que este app faz?' = 'What does this app do?'
+    'Status:' = 'Status:'
+    'Base:' = 'Base:'
+    'Pronto' = 'Ready'
+    'Dashboard' = 'Dashboard'
+    'DHCP' = 'DHCP'
+    'Firewall / NAT' = 'Firewall / NAT'
+    'Balanceamento / PBR' = 'Load Balancing / PBR'
+    'DNS / Bloqueios' = 'DNS / Blocking'
+    'Ferramentas / Log' = 'Tools / Log'
+    'Resumo do Roteador' = 'Router Summary'
+    'Interfaces / Rotas / ARP' = 'Interfaces / Routes / ARP'
+    'Clientes DHCP' = 'DHCP Clients'
+    'Ler Leases DHCP' = 'Read DHCP Leases'
+    'Listar Reservas' = 'List Reservations'
+    'Usar Lease Selecionado' = 'Use Selected Lease'
+    'Criar Reserva DHCP' = 'Create DHCP Reservation'
+    'Remover Reserva' = 'Remove Reservation'
+    'Limpar Campos' = 'Clear Fields'
+    'Reservas DHCP existentes' = 'Existing DHCP Reservations'
+    'Saída / diagnóstico DHCP' = 'DHCP output / diagnostics'
+    'Regras' = 'Rules'
+    'NAT / Port Forward' = 'NAT / Port Forward'
+    'QoS' = 'QoS'
+    'Saída / Diagnóstico' = 'Output / Diagnostics'
+    'Nome:' = 'Name:'
+    'Ação:' = 'Action:'
+    'Origem:' = 'Source:'
+    'Descrição:' = 'Description:'
+    'Listar Regras' = 'List Rules'
+    'Criar Regra' = 'Create Rule'
+    'Regra ID:' = 'Rule ID:'
+    'Chain:' = 'Chain:'
+    'Entrada WAN:' = 'WAN In:'
+    'Porta Externa:' = 'External Port:'
+    'IP Interno:' = 'Internal IP:'
+    'Porta Interna:' = 'Internal Port:'
+    'Protocolo:' = 'Protocol:'
+    'Listar Port Forward' = 'List Port Forward'
+    'Criar Port Forward' = 'Create Port Forward'
+    'Saída / diagnóstico NAT' = 'NAT output / diagnostics'
+    'Política:' = 'Policy:'
+    'Interface WAN:' = 'WAN Interface:'
+    'Download (Mbit):' = 'Download (Mbit):'
+    'Upload (Mbit):' = 'Upload (Mbit):'
+    'Padrão' = 'Default'
+    'Voz / WhatsApp' = 'Voice / WhatsApp'
+    'Reuniões' = 'Meetings'
+    'Jogos' = 'Gaming'
+    'Ler QoS' = 'Read QoS'
+    'Aplicar Smart Queue' = 'Apply Smart Queue'
+    'Remover QoS' = 'Remove QoS'
+    'Saída / diagnóstico QoS' = 'QoS output / diagnostics'
+    'Sticky Sessions' = 'Sticky Sessions'
+    'Grupo Load-Balance:' = 'Load-Balance Group:'
+    'Ver Status' = 'View Status'
+    'Ativar Sticky' = 'Enable Sticky'
+    'Remover Sticky' = 'Disable Sticky'
+    'Forçar rota por IP (PBR)' = 'Force route by IP (PBR)'
+    'IP da máquina:' = 'Device IP:'
+    'Tabela:' = 'Table:'
+    'WAN fixa:' = 'Fixed WAN:'
+    'Firewall Modify:' = 'Firewall Modify:'
+    'Modo:' = 'Mode:'
+    'Saída fixa' = 'Fixed output'
+    'Preferir WAN1' = 'Prefer WAN1'
+    'Preferir WAN2' = 'Prefer WAN2'
+    'Kill switch: se a WAN preferida cair, este IP não usa a WAN de backup' = 'Kill switch: if the preferred WAN fails, this IP will not use the backup WAN'
+    'Aplicar política' = 'Apply policy'
+    'Modo Saída fixa = prende o IP na WAN informada. Preferir WAN1/WAN2 = tenta usar a WAN escolhida e, sem kill switch, usa a outra como backup.' = 'Fixed output mode = locks the IP to the selected WAN. Prefer WAN1/WAN2 = tries to use the chosen WAN and, without kill switch, uses the other as backup.'
+    "Dica: use 'Usar Selecionado no PBR' para preencher o IP a partir da lista de leases abaixo." = "Tip: use 'Use Selected Lease in PBR' to fill the IP from the lease list below."
+    'WAN 1:' = 'WAN 1:'
+    'WAN 2:' = 'WAN 2:'
+    'Peso WAN1:' = 'WAN1 Weight:'
+    'Peso WAN2:' = 'WAN2 Weight:'
+    'Aplicar Pesos' = 'Apply Weights'
+    'WAN1 Principal' = 'WAN1 Primary'
+    'WAN2 Principal' = 'WAN2 Primary'
+    'Leases para usar no PBR' = 'Leases to use in PBR'
+    'Ler Leases do PBR' = 'Read PBR Leases'
+    'Usar Selecionado no PBR' = 'Use Selected Lease in PBR'
+    'Saída / diagnóstico do balanceamento' = 'Load balancing output / diagnostics'
+    'Domínio:' = 'Domain:'
+    'Ler Sites Bloqueados' = 'Read Blocked Sites'
+    'Bloquear Site' = 'Block Site'
+    'Desbloquear Site' = 'Unblock Site'
+    'Listar Regras DNS / DoH' = 'List DNS / DoH Rules'
+    'Sites bloqueados' = 'Blocked sites'
+    'Saída / diagnóstico DNS' = 'DNS output / diagnostics'
+    'LAN:' = 'LAN:'
+    'IP do roteador:' = 'Router IP:'
+    'Regra DNS:' = 'DNS Rule:'
+    'Ativar Interceptação' = 'Enable Interception'
+    'Remover Interceptação' = 'Remove Interception'
+    'Regra DoH:' = 'DoH Rule:'
+    'Ativar Bloqueio DoH' = 'Enable DoH Blocking'
+    'Remover Bloqueio DoH' = 'Remove DoH Blocking'
+    'Host/IP:' = 'Host/IP:'
+    'Ping' = 'Ping'
+    'DNS Test' = 'DNS Test'
+    'Backup da Config' = 'Config Backup'
+    'Abrir Pasta Logs' = 'Open Logs Folder'
+    'IP' = 'IP'
+    'MAC' = 'MAC'
+    'Nome' = 'Name'
+    'Pool' = 'Pool'
+    'Sub-rede' = 'Subnet'
+    'Tipo' = 'Type'
+    'IP do EdgeRouter' = 'EdgeRouter IP'
+    'Usuário SSH' = 'SSH user'
+    'Senha SSH' = 'SSH password'
+    'Lê os leases DHCP dinâmicos.' = 'Reads dynamic DHCP leases.'
+    'Lê as reservas DHCP existentes na configuração.' = 'Reads existing DHCP reservations from configuration.'
+    'Preenche 50/50. Use Aplicar Pesos para colocar em balanceamento.' = 'Fills 50/50. Use Apply Weights to enable balancing.'
+    'Deixa a WAN1 como principal e a WAN2 como backup.' = 'Sets WAN1 as primary and WAN2 as backup.'
+    'Deixa a WAN2 como principal e a WAN1 como backup.' = 'Sets WAN2 as primary and WAN1 as backup.'
+    'Escolha entre saída fixa ou preferência por WAN1/WAN2 com fallback opcional.' = 'Choose between fixed output or WAN1/WAN2 preference with optional fallback.'
+    'Aplica a política escolhida para o IP informado.' = 'Applies the selected policy to the informed IP.'
+    'Lista o port-forward atual do roteador.' = 'Lists current port forwarding rules.'
+    'Cria uma regra de port-forward usando os campos preenchidos.' = 'Creates a port-forward rule using the filled fields.'
+    'Lista as regras da chain informada e abre a subaba de saída.' = 'Lists rules from the selected chain and opens the output subtab.'
+    'Cria uma nova regra simples de firewall na chain informada.' = 'Creates a simple firewall rule on the selected chain.'
+    'Lê a configuração QoS/Smart Queue e o status atual das filas.' = 'Reads QoS/Smart Queue configuration and current queue status.'
+    'Carrega um perfil neutro para Smart Queue.' = 'Loads a neutral Smart Queue profile.'
+    'Prepara um perfil rápido para chamadas e WhatsApp, mantendo a lógica simples do Smart Queue.' = 'Prepares a quick profile for calls and WhatsApp while keeping Smart Queue simple.'
+    'Prepara um perfil rápido para Teams, Meet e Zoom.' = 'Prepares a quick profile for Teams, Meet and Zoom.'
+    'Prepara um perfil rápido pensando em baixa latência para jogos.' = 'Prepares a quick low-latency gaming profile.'
+    'Aplica um Smart Queue básico na interface WAN escolhida.' = 'Applies a basic Smart Queue to the chosen WAN interface.'
+    'Remove a política Smart Queue informada.' = 'Removes the selected Smart Queue policy.'
+    'Lista regras relacionadas a DNS, interceptação e DoH.' = 'Lists rules related to DNS, interception and DoH.'
+    'Cria NAT para interceptar DNS porta 53 na LAN.' = 'Creates NAT to intercept DNS port 53 on the LAN.'
+    'Remove a regra NAT usada na interceptação DNS.' = 'Removes the NAT rule used for DNS interception.'
+    'Ativa um bloqueio básico de DoH para endpoints comuns.' = 'Enables basic DoH blocking for common endpoints.'
+    'Remove o bloqueio básico de DoH configurado pelo app.' = 'Removes the basic DoH blocking configured by the app.'
+    'Selecione um modo para a política de PBR.' = 'Select a mode for the PBR policy.'
+    'Modo de PBR não reconhecido.' = 'PBR mode not recognized.'
+    'Testando...' = 'Testing...'
+    'Conexão OK' = 'Connection OK'
+    'Conexão SSH bem-sucedida.' = 'SSH connection successful.'
+    'Erro de conexão' = 'Connection error'
+    'Sobre a versão WPF' = 'About the WPF version'
+    'Isto é um protótipo WPF paralelo ao fix16.`r`n`r`nObjetivo:`r`n- comparar aproveitamento de espaço`r`n- testar grids, rolagem e layout`r`n- preservar a lógica PowerShell/SSH que já funcionou no fix16`r`n- testar perfis rápidos de QoS, PBR por WAN e o modo WAN preferida com kill switch' = 'This is a WPF prototype running in parallel with fix16.`r`n`r`nGoal:`r`n- compare space usage`r`n- test grids, scrolling and layout`r`n- preserve the PowerShell/SSH logic that already worked in fix16`r`n- test quick QoS profiles, per-WAN PBR and preferred-WAN mode with kill switch'
+    'Backup salvo' = 'Backup saved'
+    'Backup salvo em:' = 'Backup saved to:'
+}
+$script:TranslationsEnToPt = @{}
+foreach ($k in $script:TranslationsPtToEn.Keys) { $script:TranslationsEnToPt[$script:TranslationsPtToEn[$k]] = $k }
+
+function Get-UiText {
+    param([string]$Text)
+    if ($null -eq $Text) { return $Text }
+    if ($script:CurrentLanguage -eq 'en') {
+        if ($script:TranslationsPtToEn.Contains($Text)) { return $script:TranslationsPtToEn[$Text] }
+    } else {
+        if ($script:TranslationsEnToPt.Contains($Text)) { return $script:TranslationsEnToPt[$Text] }
+    }
+    return $Text
+}
+
+function Get-PbrModeKey {
+    param([object]$SelectedItem)
+    if ($null -eq $SelectedItem) { return $null }
+    $txt = if ($SelectedItem -is [string]) { [string]$SelectedItem } else { [string]$SelectedItem.Content }
+    switch ($txt) {
+        'Saída fixa' { return 'fixed' }
+        'Fixed output' { return 'fixed' }
+        'Preferir WAN1' { return 'prefer1' }
+        'Prefer WAN1' { return 'prefer1' }
+        'Preferir WAN2' { return 'prefer2' }
+        'Prefer WAN2' { return 'prefer2' }
+        default { return $null }
+    }
+}
+
+function Update-UiLanguage {
+    param([string]$Language)
+    if ($Language -notin @('pt','en')) { return }
+    $script:CurrentLanguage = $Language
+
+    function _Apply($element) {
+        if ($null -eq $element) { return }
+        try {
+            if ($element -is [System.Windows.Window]) {
+                $element.Title = Get-UiText $element.Title
+            }
+            if ($element -is [System.Windows.Controls.TextBlock]) {
+                $element.Text = Get-UiText ([string]$element.Text)
+            }
+            if ($element -is [System.Windows.Controls.Button]) {
+                $element.Content = Get-UiText ([string]$element.Content)
+            }
+            elseif ($element -is [System.Windows.Controls.CheckBox]) {
+                $element.Content = Get-UiText ([string]$element.Content)
+            }
+            elseif ($element -is [System.Windows.Controls.TabItem]) {
+                $element.Header = Get-UiText ([string]$element.Header)
+            }
+            elseif ($element -is [System.Windows.Controls.ComboBox]) {
+                foreach ($item in $element.Items) {
+                    if ($item -is [System.Windows.Controls.ComboBoxItem]) {
+                        $item.Content = Get-UiText ([string]$item.Content)
+                    }
+                }
+            }
+            if ($element.PSObject.Properties['ToolTip']) {
+                $tip = $element.ToolTip
+                if ($tip -is [string]) { $element.ToolTip = Get-UiText $tip }
+            }
+            if ($element -is [System.Windows.Controls.DataGrid]) {
+                foreach ($col in $element.Columns) {
+                    if ($col.Header -is [string]) { $col.Header = Get-UiText ([string]$col.Header) }
+                }
+            }
+            foreach ($child in [System.Windows.LogicalTreeHelper]::GetChildren($element)) {
+                if ($child -is [System.Windows.DependencyObject]) { _Apply $child }
+            }
+        } catch {}
+    }
+
+    _Apply $window
+    if ($script:txtStatus) {
+        if ($txtStatus.Text -in @('Pronto','Ready')) { $txtStatus.Text = Get-UiText 'Pronto' }
+    }
+    if ($script:btnLangToggle) {
+        $btnLangToggle.Content = if ($script:CurrentLanguage -eq 'pt') { 'EN' } else { 'PT' }
+        $btnLangToggle.ToolTip = if ($script:CurrentLanguage -eq 'pt') { 'Switch interface to English' } else { 'Trocar interface para Português' }
+    }
+}
+
+function Toggle-UiLanguage {
+    if ($script:CurrentLanguage -eq 'pt') { Update-UiLanguage 'en' } else { Update-UiLanguage 'pt' }
+}
+
 function Show-UiMessage {
     param([string]$Message,[string]$Title = 'Aviso',[string]$Icon = 'Information')
     [System.Windows.MessageBox]::Show($Message, $Title, 'OK', $Icon) | Out-Null
@@ -737,7 +978,7 @@ function Refresh-DnsBlockedDomains {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="EdgeRouter Suite Friendly - WPF Preview v11"
+        Title="EdgeRouter Suite Friendly - WPF Preview v12"
         Width="1320" Height="920" MinWidth="1180" MinHeight="760"
         WindowStartupLocation="CenterScreen" Background="#FFF4F6F8">
     <DockPanel LastChildFill="True" Margin="10">
@@ -780,6 +1021,7 @@ function Refresh-DnsBlockedDomains {
                 <PasswordBox x:Name="txtPass" Grid.Row="1" Grid.Column="7" Height="30" Margin="6,0,0,0" />
                 <Button x:Name="btnTestConn" Grid.Row="1" Grid.Column="9" Height="34" Content="Testar SSH" Background="#8FD3FF" BorderBrush="#4E6E81" />
                 <Button x:Name="btnAbout" Grid.Row="1" Grid.Column="11" Height="34" Content="O que este app faz?" Background="#F6F8FA" BorderBrush="#4E6E81" />
+                <Button x:Name="btnLangToggle" Grid.Row="1" Grid.Column="12" Width="64" Height="34" Content="EN" HorizontalAlignment="Left" Background="#F6F8FA" BorderBrush="#4E6E81" />
             </Grid>
         </Border>
 
@@ -812,7 +1054,7 @@ function Refresh-DnsBlockedDomains {
                         <ColumnDefinition Width="1*"/>
                     </Grid.ColumnDefinitions>
 
-                    <Border Grid.Row="0" Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
+                    <Border Grid.Row="0" Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="8" VerticalAlignment="Top">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -832,7 +1074,7 @@ function Refresh-DnsBlockedDomains {
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="0" Grid.Column="2" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
+                    <Border Grid.Row="0" Grid.Column="2" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10" VerticalAlignment="Top">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1084,15 +1326,15 @@ function Refresh-DnsBlockedDomains {
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="10"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="12"/>
+                        <RowDefinition Height="10"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="0.92*"/>
+                        <ColumnDefinition Width="0.78*"/>
                         <ColumnDefinition Width="12"/>
-                        <ColumnDefinition Width="1.08*"/>
+                        <ColumnDefinition Width="1.22*"/>
                     </Grid.ColumnDefinitions>
 
                     <Border Grid.Row="0" Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
@@ -1102,20 +1344,20 @@ function Refresh-DnsBlockedDomains {
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
-                            <TextBlock Text="Sticky Sessions" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                            <WrapPanel Grid.Row="1" Margin="0,0,0,8">
+                            <TextBlock Text="Sticky Sessions" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                            <WrapPanel Grid.Row="1" Margin="0,0,0,6">
                                 <TextBlock Text="Grupo Load-Balance:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <TextBox x:Name="txtLbGroup" Width="140" Height="28" Margin="0,0,10,8" Text="G"/>
-                                <Button x:Name="btnLbStatus" Content="Ver Status dos Links" Width="170" Height="34" Margin="0,0,0,8" Background="#8FD3FF"/>
+                                <TextBox x:Name="txtLbGroup" Width="120" Height="28" Margin="0,0,10,0" Text="G"/>
+                                <Button x:Name="btnLbStatus" Content="Ver Status" Width="120" Height="32" Margin="0,0,0,0" Background="#8FD3FF"/>
                             </WrapPanel>
                             <WrapPanel Grid.Row="2">
-                                <Button x:Name="btnStickyOn" Content="Ativar Sticky" Width="160" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
-                                <Button x:Name="btnStickyOff" Content="Remover Sticky" Width="160" Height="34" Background="#F28585"/>
+                                <Button x:Name="btnStickyOn" Content="Ativar Sticky" Width="130" Height="32" Margin="0,0,8,0" Background="#47C37C"/>
+                                <Button x:Name="btnStickyOff" Content="Remover Sticky" Width="130" Height="32" Background="#F28585"/>
                             </WrapPanel>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="0" Grid.RowSpan="3" Grid.Column="2" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
+                    <Border Grid.Row="0" Grid.Column="2" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1123,14 +1365,15 @@ function Refresh-DnsBlockedDomains {
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
                                 <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
                             </Grid.RowDefinitions>
                             <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="140"/>
-                                <ColumnDefinition Width="120"/>
-                                <ColumnDefinition Width="185"/>
                                 <ColumnDefinition Width="110"/>
-                                <ColumnDefinition Width="120"/>
+                                <ColumnDefinition Width="130"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="170"/>
+                                <ColumnDefinition Width="110"/>
+                                <ColumnDefinition Width="110"/>
                             </Grid.ColumnDefinitions>
                             <TextBlock Grid.Row="0" Grid.ColumnSpan="6" Text="Forçar rota por IP (PBR)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
                             <TextBlock Grid.Row="1" Grid.Column="0" Text="Rule ID:" VerticalAlignment="Center"/>
@@ -1139,7 +1382,6 @@ function Refresh-DnsBlockedDomains {
                             <TextBox x:Name="txtPbrIP" Grid.Row="1" Grid.Column="3" Height="28" Margin="6,0,10,8"/>
                             <TextBlock Grid.Row="1" Grid.Column="4" Text="Tabela:" VerticalAlignment="Center"/>
                             <TextBox x:Name="txtPbrTable" Grid.Row="1" Grid.Column="5" Height="28" Margin="6,0,0,8" Text="11"/>
-
                             <TextBlock Grid.Row="2" Grid.Column="0" Text="WAN fixa:" VerticalAlignment="Center"/>
                             <TextBox x:Name="txtPbrWan" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,10,8" Text="eth0"/>
                             <TextBlock Grid.Row="2" Grid.Column="2" Text="Firewall Modify:" VerticalAlignment="Center"/>
@@ -1150,24 +1392,14 @@ function Refresh-DnsBlockedDomains {
                                 <ComboBoxItem Content="Preferir WAN1"/>
                                 <ComboBoxItem Content="Preferir WAN2"/>
                             </ComboBox>
-
-                            <CheckBox x:Name="chkPbrKillSwitch" Grid.Row="3" Grid.ColumnSpan="6" Content="Kill switch: se a WAN preferida cair, este IP não usa a WAN de backup" Margin="0,2,0,8" ToolTip="Marcado = o IP fica sem saída se a WAN preferida cair. Desmarcado = tenta usar a outra WAN como backup na mesma tabela do PBR."/>
-
-                            <Grid Grid.Row="4" Grid.ColumnSpan="6">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="180"/>
-                                </Grid.ColumnDefinitions>
-                                <StackPanel Grid.Column="0" Margin="0,0,10,0">
-                                    <TextBlock Text="Modo Saída fixa = prende o IP na WAN informada. Preferir WAN1/WAN2 = tenta usar a WAN escolhida e, sem kill switch, usa a outra como backup." Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,6"/>
-                                    <TextBlock Text="Dica: use 'Usar Selecionado no PBR' para preencher o IP a partir da lista de leases abaixo." Foreground="#666666" TextWrapping="Wrap"/>
-                                </StackPanel>
-                                <Button x:Name="btnPbrApply" Grid.Column="1" Width="170" Height="36" Content="Aplicar política" Background="#F7D900" HorizontalAlignment="Right" VerticalAlignment="Top"/>
-                            </Grid>
+                            <CheckBox x:Name="chkPbrKillSwitch" Grid.Row="3" Grid.ColumnSpan="4" Content="Kill switch: se a WAN preferida cair, este IP não usa a WAN de backup" Margin="0,2,0,8" ToolTip="Marcado = o IP fica sem saída se a WAN preferida cair. Desmarcado = tenta usar a outra WAN como backup na mesma tabela do PBR."/>
+                            <Button x:Name="btnPbrApply" Grid.Row="3" Grid.Column="4" Grid.ColumnSpan="2" Width="170" Height="34" Content="Aplicar política" Background="#F7D900" HorizontalAlignment="Left" Margin="6,0,0,8"/>
+                            <TextBlock Grid.Row="4" Grid.ColumnSpan="6" Text="Modo Saída fixa = prende o IP na WAN informada. Preferir WAN1/WAN2 = tenta usar a WAN escolhida e, sem kill switch, usa a outra como backup." Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,6"/>
+                            <TextBlock Grid.Row="5" Grid.ColumnSpan="6" Text="Dica: use 'Usar Selecionado no PBR' para preencher o IP a partir da lista de leases abaixo." Foreground="#666666" TextWrapping="Wrap"/>
                         </Grid>
                     </Border>
 
-                    <Border Grid.Row="2" Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
+                    <Border Grid.Row="2" Grid.ColumnSpan="3" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto"/>
@@ -1187,15 +1419,15 @@ function Refresh-DnsBlockedDomains {
                                 <Button x:Name="btnLbFailoverWan1" Content="WAN1 Principal" Width="150" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
                                 <Button x:Name="btnLbFailoverWan2" Content="WAN2 Principal" Width="150" Height="34" Background="#8FD3FF"/>
                             </WrapPanel>
-                            <TextBox x:Name="txtLbSummary" Grid.Row="1" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Auto" IsReadOnly="True" Height="74"/>
+                            <TextBox x:Name="txtLbSummary" Grid.Row="1" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Auto" IsReadOnly="True" Height="78"/>
                         </Grid>
                     </Border>
 
                     <Grid Grid.Row="4" Grid.ColumnSpan="3">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="1*"/>
                             <ColumnDefinition Width="12"/>
-                            <ColumnDefinition Width="1.1*"/>
+                            <ColumnDefinition Width="1*"/>
                         </Grid.ColumnDefinitions>
                         <Border Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
                             <Grid>
@@ -1348,7 +1580,7 @@ $reader = New-Object System.Xml.XmlNodeReader $xaml
 $window = [Windows.Markup.XamlReader]::Load($reader)
 
 $names = @(
-    'txtIp','txtUser','txtPass','btnTestConn','btnAbout','txtStatus',
+    'txtIp','txtUser','txtPass','btnTestConn','btnAbout','btnLangToggle','txtStatus',
     'btnDashResumo','btnDashRede','btnDashLeases','txtDashOut',
     'btnDhcpLer','btnDhcpLerReservas','dgDhcpLeases','dgDhcpReservations','txtDhcpOut','txtPool','txtSubnet','txtHost','txtMac','txtIpFix','btnUsarLease','btnCriarReserva','btnRemoverReserva','btnLimparDhcp',
     'txtRuleNat','txtInIf','txtPortExt','txtIPInt','txtPortInt','cmbNatProto','txtDescNat','btnNatListar','btnNatCriar','txtNatOut',
@@ -1363,22 +1595,24 @@ if ($ip) { $txtIp.Text = $ip }
 if ($user) { $txtUser.Text = $user }
 if ($pass) { $txtPass.Password = $pass }
 
+$btnLangToggle.Add_Click({ Toggle-UiLanguage })
+
 $btnAbout.Add_Click({
-    Show-UiMessage -Title 'Sobre a versão WPF' -Message "Isto é um protótipo WPF paralelo ao fix16.`r`n`r`nObjetivo:`r`n- comparar aproveitamento de espaço`r`n- testar grids, rolagem e layout`r`n- preservar a lógica PowerShell/SSH que já funcionou no fix16`r`n- testar perfis rápidos de QoS, PBR por WAN e o modo WAN preferida com kill switch"
+    Show-UiMessage -Title (Get-UiText 'Sobre a versão WPF') -Message (Get-UiText "Isto é um protótipo WPF paralelo ao fix16.`r`n`r`nObjetivo:`r`n- comparar aproveitamento de espaço`r`n- testar grids, rolagem e layout`r`n- preservar a lógica PowerShell/SSH que já funcionou no fix16`r`n- testar perfis rápidos de QoS, PBR por WAN e o modo WAN preferida com kill switch")
 })
 
 $btnTestConn.Add_Click({
     try {
-        $btnTestConn.Content = 'Testando...'
+        $btnTestConn.Content = (Get-UiText 'Testando...')
         $window.Cursor = [System.Windows.Input.Cursors]::Wait
         $out = Invoke-EdgeRouterCommand -Command 'show version | head -n 3'
-        Show-UiMessage -Title 'Conexão OK' -Message ("Conexão SSH bem-sucedida.`r`n`r`n" + $out)
+        Show-UiMessage -Title (Get-UiText 'Conexão OK') -Message ((Get-UiText 'Conexão SSH bem-sucedida.') + "`r`n`r`n" + $out)
         Write-AppLog 'Teste SSH executado com sucesso.'
     } catch {
-        Show-UiMessage -Title 'Erro de conexão' -Message $_.Exception.Message -Icon 'Error'
+        Show-UiMessage -Title (Get-UiText 'Erro de conexão') -Message $_.Exception.Message -Icon 'Error'
         Write-AppLog "Falha no teste SSH: $($_.Exception.Message)" 'ERROR'
     } finally {
-        $btnTestConn.Content = 'Testar SSH'
+        $btnTestConn.Content = (Get-UiText 'Testar SSH')
         $window.Cursor = [System.Windows.Input.Cursors]::Arrow
     }
 })
@@ -1510,10 +1744,10 @@ $btnPbrUseLease.Add_Click({ if ($dgPbrLeases.SelectedItem) { $txtPbrIP.Text = [s
 $cmbPbrMode.Add_SelectionChanged({
     try {
         if (-not $cmbPbrMode.SelectedItem) { return }
-        $modeText = $cmbPbrMode.SelectedItem.Content.ToString()
-        switch ($modeText) {
-            'Preferir WAN1' { $txtPbrWan.Text = $txtLbWan1.Text.Trim() }
-            'Preferir WAN2' { $txtPbrWan.Text = $txtLbWan2.Text.Trim() }
+        $modeKey = Get-PbrModeKey $cmbPbrMode.SelectedItem
+        switch ($modeKey) {
+            'prefer1' { $txtPbrWan.Text = $txtLbWan1.Text.Trim() }
+            'prefer2' { $txtPbrWan.Text = $txtLbWan2.Text.Trim() }
             default { }
         }
     } catch {}
@@ -1521,21 +1755,21 @@ $cmbPbrMode.Add_SelectionChanged({
 
 $btnPbrApply.Add_Click({
     try {
-        if (-not $cmbPbrMode.SelectedItem) { throw 'Selecione um modo para a política de PBR.' }
-        $modeText = $cmbPbrMode.SelectedItem.Content.ToString()
-        switch ($modeText) {
-            'Saída fixa' {
+        if (-not $cmbPbrMode.SelectedItem) { throw (Get-UiText 'Selecione um modo para a política de PBR.') }
+        $modeKey = Get-PbrModeKey $cmbPbrMode.SelectedItem
+        switch ($modeKey) {
+            'fixed' {
                 Invoke-PbrCreateInternal -Rule $txtPbrRule.Text.Trim() -IpAddress $txtPbrIP.Text.Trim() -WanInterface $txtPbrWan.Text.Trim() -Table $txtPbrTable.Text.Trim() -Modify $txtPbrModify.Text.Trim() -Reason "PBR_$($txtPbrIP.Text.Trim())"
             }
-            'Preferir WAN1' {
+            'prefer1' {
                 $txtPbrWan.Text = $txtLbWan1.Text.Trim()
                 Invoke-PbrPreferredPolicyInternal -Rule $txtPbrRule.Text.Trim() -IpAddress $txtPbrIP.Text.Trim() -PreferredWan $txtLbWan1.Text.Trim() -BackupWan $txtLbWan2.Text.Trim() -Table $txtPbrTable.Text.Trim() -Modify $txtPbrModify.Text.Trim() -KillSwitch ([bool]$chkPbrKillSwitch.IsChecked) -Reason "PBR_PREFER_WAN1_$($txtPbrIP.Text.Trim())" -ConfirmLabel "Aplicar política preferindo $($txtLbWan1.Text.Trim()) para $($txtPbrIP.Text.Trim())?"
             }
-            'Preferir WAN2' {
+            'prefer2' {
                 $txtPbrWan.Text = $txtLbWan2.Text.Trim()
                 Invoke-PbrPreferredPolicyInternal -Rule $txtPbrRule.Text.Trim() -IpAddress $txtPbrIP.Text.Trim() -PreferredWan $txtLbWan2.Text.Trim() -BackupWan $txtLbWan1.Text.Trim() -Table $txtPbrTable.Text.Trim() -Modify $txtPbrModify.Text.Trim() -KillSwitch ([bool]$chkPbrKillSwitch.IsChecked) -Reason "PBR_PREFER_WAN2_$($txtPbrIP.Text.Trim())" -ConfirmLabel "Aplicar política preferindo $($txtLbWan2.Text.Trim()) para $($txtPbrIP.Text.Trim())?"
             }
-            default { throw 'Modo de PBR não reconhecido.' }
+            default { throw (Get-UiText 'Modo de PBR não reconhecido.') }
         }
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
@@ -1805,7 +2039,7 @@ $btnDnsLookup.Add_Click({
 $btnBackup.Add_Click({
     try {
         $file = Save-EdgeBackup -Reason 'manual_wpf'
-        Show-UiMessage -Title 'Backup salvo' -Message "Backup salvo em:`r`n$file"
+        Show-UiMessage -Title (Get-UiText 'Backup salvo') -Message ((Get-UiText 'Backup salvo em:') + "`r`n$file")
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
@@ -1840,5 +2074,7 @@ $btnDnsHijackOff.ToolTip = 'Remove a regra NAT usada na interceptação DNS.'
 $btnDohOn.ToolTip = 'Ativa um bloqueio básico de DoH para endpoints comuns.'
 $btnDohOff.ToolTip = 'Remove o bloqueio básico de DoH configurado pelo app.'
 
-Write-AppLog 'Protótipo WPF v9 carregado. O PBR ganhou modo WAN preferida com kill switch e fallback opcional.'
+Update-UiLanguage 'pt'
+Write-AppLog 'Protótipo WPF v12 carregado. Interface agora pode alternar entre Português e Inglês.'
 $window.ShowDialog() | Out-Null
+
