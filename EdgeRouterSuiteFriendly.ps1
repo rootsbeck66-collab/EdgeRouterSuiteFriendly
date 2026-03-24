@@ -59,10 +59,23 @@ function Set-OutputText {
     $Target.ScrollToHome()
 }
 
+function Set-FirewallOutput {
+    param(
+        $Content,
+        [string]$Title = ''
+    )
+    if ($script:txtFwInline) {
+        Set-OutputText -Target $script:txtFwInline -Content $Content -Title $Title
+    }
+    if ($script:txtFwOut) {
+        Set-OutputText -Target $script:txtFwOut -Content $Content -Title $Title
+    }
+}
+
 
 $script:CurrentLanguage = 'pt'
 $script:TranslationsPtToEn = [ordered]@{
-    'EdgeRouter Suite Friendly - WPF Preview v16 QoS dispositivo AQ fix3' = 'EdgeRouter Suite Friendly - WPF Preview v16 QoS dispositivo AQ fix3'
+    'EdgeRouter Suite Friendly - WPF Preview v20 DPI / Offload' = 'EdgeRouter Suite Friendly - WPF Preview v17 per-IP P2P blocking'
     'Conexão do Roteador' = 'Router Connection'
     'Usuário:' = 'User:'
     'Senha:' = 'Password:'
@@ -83,6 +96,13 @@ $script:TranslationsPtToEn = [ordered]@{
     'Ler Leases DHCP' = 'Read DHCP Leases'
     'Listar Reservas' = 'List Reservations'
     'Usar Lease Selecionado' = 'Use Selected Lease'
+    'Listar online agora' = 'List online now'
+    'Ler Bloqueios P2P' = 'Read P2P Blocks'
+    'Bloquear P2P/Torrent' = 'Block P2P/Torrent'
+    'Remover Bloqueio P2P' = 'Remove P2P Block'
+    'Bloqueios P2P/Torrent' = 'P2P/Torrent Blocks'
+    'Bloqueio P2P/Torrent por IP (DPI)' = 'Per-IP P2P/Torrent block (DPI)'
+    'Clientes online agora' = 'Online clients now'
     'Criar Reserva DHCP' = 'Create DHCP Reservation'
     'Remover Reserva' = 'Remove Reservation'
     'Limpar Campos' = 'Clear Fields'
@@ -98,13 +118,27 @@ $script:TranslationsPtToEn = [ordered]@{
     'Descrição:' = 'Description:'
     'Listar Regras' = 'List Rules'
     'Criar Regra' = 'Create Rule'
+    'Destino:' = 'Destination:'
+    'Protocolo:' = 'Protocol:'
+    'Porta dest.:' = 'Dest. port:'
+    'Bloquear Internet do IP' = 'Block Internet for IP'
+    'Permitir Só Web/DNS' = 'Allow Web/DNS Only'
+    'Bloquear Porta/Proto' = 'Block Port/Proto'
+    'Ler Regras do App' = 'Read App Rules'
+    'Remover Regra Selecionada' = 'Remove Selected Rule'
+    'Firewall' = 'Firewall'
+    'Regra' = 'Rule'
+    'Ação' = 'Action'
+    'Origem' = 'Source'
+    'Destino' = 'Destination'
+    'Protocolo' = 'Protocol'
+    'Porta' = 'Port'
     'Regra ID:' = 'Rule ID:'
     'Chain:' = 'Chain:'
     'Entrada WAN:' = 'WAN In:'
     'Porta Externa:' = 'External Port:'
     'IP Interno:' = 'Internal IP:'
     'Porta Interna:' = 'Internal Port:'
-    'Protocolo:' = 'Protocol:'
     'Listar Port Forward' = 'List Port Forward'
     'Criar Port Forward' = 'Create Port Forward'
     'Saída / diagnóstico NAT' = 'NAT output / diagnostics'
@@ -154,7 +188,6 @@ $script:TranslationsPtToEn = [ordered]@{
     'Ler Políticas PBR' = 'Read PBR Policies'
     'Remover Política Selecionada' = 'Remove Selected Policy'
     'Descrição' = 'Description'
-    'Regra' = 'Rule'
     'Tabela' = 'Table'
     'WAN' = 'WAN'
     'Carrega as políticas de PBR da chain informada para conferência e remoção.' = 'Loads PBR policies from the selected chain for review and removal.'
@@ -192,6 +225,10 @@ $script:TranslationsPtToEn = [ordered]@{
     'DNS Test' = 'DNS Test'
     'Backup da Config' = 'Config Backup'
     'Abrir Pasta Logs' = 'Open Logs Folder'
+    'Ler Status DPI/Offload' = 'Read DPI/Offload Status'
+    'Modo análise de tráfego' = 'Traffic analysis mode'
+    'Modo desempenho' = 'Performance mode'
+    'DPI ligado = melhor para investigar consumo por aplicação. Pode reduzir desempenho. Modo desempenho = desliga DPI/export e tenta religar offload para o dia a dia.' = 'DPI on = better to investigate usage by application. It may reduce performance. Performance mode = disables DPI/export and tries to re-enable offload for daily use.'
     'IP' = 'IP'
     'MAC' = 'MAC'
     'Nome' = 'Name'
@@ -469,6 +506,93 @@ function Unquote-EdgeToken {
     param([string]$Value)
     if ($null -eq $Value) { return '' }
     return ($Value.Trim() -replace '^"|"$','' -replace "^'|'$",'')
+}
+
+function Get-AppManagedFirewallRules {
+    $lines = Get-EdgeConfigLines
+    $map = @{}
+    foreach ($line in $lines) {
+        if ($line -notmatch '^set firewall name (\S+) rule (\d+) (.+)$') { continue }
+        $fw = $Matches[1]
+        $rule = $Matches[2]
+        $rest = $Matches[3]
+        $key = "$fw|$rule"
+        if (-not $map.ContainsKey($key)) {
+            $map[$key] = [ordered]@{
+                Firewall = $fw
+                Rule = [int]$rule
+                Action = ''
+                Source = ''
+                Destination = ''
+                Protocol = ''
+                Port = ''
+                Description = ''
+            }
+        }
+        $item = $map[$key]
+        if ($rest -match '^description (.+)$') { $item.Description = Unquote-EdgeToken $Matches[1]; continue }
+        if ($rest -match '^action (\S+)$') { $item.Action = $Matches[1]; continue }
+        if ($rest -match '^source address (\S+)$') { $item.Source = $Matches[1]; continue }
+        if ($rest -match '^destination address (\S+)$') { $item.Destination = $Matches[1]; continue }
+        if ($rest -match '^destination port (\S+)$') { $item.Port = $Matches[1]; continue }
+        if ($rest -match '^protocol (\S+)$') { $item.Protocol = $Matches[1]; continue }
+    }
+    $items = foreach ($k in $map.Keys) { [pscustomobject]$map[$k] }
+    return @($items | Where-Object {
+        $_.Description -like 'APP_*' -or $_.Description -like 'Regra_app_*' -or $_.Description -like 'APPFW_*'
+    } | Sort-Object Firewall, Rule)
+}
+
+function Refresh-AppManagedFirewallRules {
+    $items = Get-AppManagedFirewallRules
+    if ($dgFwManaged) { $dgFwManaged.ItemsSource = $items }
+    Write-AppLog "Regras de firewall do app carregadas: $($items.Count)"
+    return $items
+}
+
+function New-AppFirewallRuleCommands {
+    param(
+        [string]$Firewall,
+        [int]$Rule,
+        [string]$Action,
+        [string]$Source,
+        [string]$Destination,
+        [string]$Protocol,
+        [string]$Port,
+        [string]$Description,
+        [switch]$EnableLog
+    )
+    $cmds = @(
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule description '$Description'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule action $Action"
+    )
+    if ($Source) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule source address $Source" }
+    if ($Destination) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule destination address $Destination" }
+    if ($Protocol -and $Protocol -ne 'any') { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule protocol $Protocol" }
+    if ($Port) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule destination port $Port" }
+    if ($EnableLog) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $Firewall rule $Rule log enable" }
+    return ,$cmds
+}
+
+function Set-FirewallFieldsFromRule {
+    param($RuleObject)
+    if ($null -eq $RuleObject) { return }
+    try {
+        $txtFwName.Text = [string]$RuleObject.Firewall
+        $txtFwRule.Text = [string]$RuleObject.Rule
+        $txtFwSource.Text = [string]$RuleObject.Source
+        $txtFwDest.Text = [string]$RuleObject.Destination
+        $txtFwPort.Text = [string]$RuleObject.Port
+        $txtFwDesc.Text = [string]$RuleObject.Description
+        $proto = if ([string]::IsNullOrWhiteSpace([string]$RuleObject.Protocol)) { 'any' } else { [string]$RuleObject.Protocol }
+        foreach ($it in $cmbFwProto.Items) {
+            if ($it.Content.ToString() -eq $proto) { $cmbFwProto.SelectedItem = $it; break }
+        }
+        $act = if ([string]::IsNullOrWhiteSpace([string]$RuleObject.Action)) { 'drop' } else { [string]$RuleObject.Action }
+        foreach ($it in $cmbFwAction.Items) {
+            if ($it.Content.ToString() -eq $act) { $cmbFwAction.SelectedItem = $it; break }
+        }
+    } catch {}
 }
 
 function Get-RouterSummary {
@@ -1123,9 +1247,337 @@ function Refresh-QosDevicePolicies {
     }
 }
 
-function Apply-SelectedLeaseToQosDeviceFields {
-    if ($dgPbrLeases -and $dgPbrLeases.SelectedItem) { $txtQosDevIp.Text = [string]$dgPbrLeases.SelectedItem.IP; return }
-    if ($dgDhcpLeases -and $dgDhcpLeases.SelectedItem) { $txtQosDevIp.Text = [string]$dgDhcpLeases.SelectedItem.IP; return }
+function Get-OnlineClientsSnapshot {
+    $leaseByIp = @{}
+    $leaseByMac = @{}
+    foreach ($line in (Get-DhcpLeaseLines)) {
+        $lease = Parse-DhcpLeaseDisplayLine -Line $line -Source 'dynamic'
+        if (-not $lease) { continue }
+        if ($lease.IP) { $leaseByIp[$lease.IP] = $lease }
+        if ($lease.MAC) { $leaseByMac[$lease.MAC.ToLowerInvariant()] = $lease }
+    }
+
+    foreach ($map in (Get-DhcpStaticMappings)) {
+        if ($map.IP -and -not $leaseByIp.ContainsKey($map.IP)) {
+            $leaseByIp[$map.IP] = [pscustomobject]@{ IP=$map.IP; MAC=$map.MAC; Host=$map.Name; RawLine=''; Source='reserved' }
+        }
+        if ($map.MAC) {
+            $macKey = $map.MAC.ToLowerInvariant()
+            if (-not $leaseByMac.ContainsKey($macKey)) {
+                $leaseByMac[$macKey] = [pscustomobject]@{ IP=$map.IP; MAC=$map.MAC; Host=$map.Name; RawLine=''; Source='reserved' }
+            }
+        }
+    }
+
+    $candidateIps = New-Object System.Collections.ArrayList
+    foreach ($ipAddr in $leaseByIp.Keys) {
+        if ((Test-IPv4Address $ipAddr) -and -not ($candidateIps -contains $ipAddr)) { [void]$candidateIps.Add($ipAddr) }
+    }
+
+    $commands = New-Object System.Collections.ArrayList
+    if ($candidateIps.Count -gt 0) {
+        $ipList = ($candidateIps | ForEach-Object { [string]$_ }) -join ' '
+        if (-not [string]::IsNullOrWhiteSpace($ipList)) {
+            [void]$commands.Add("for ip in $ipList; do ping -c 1 -W 1 `$ip >/dev/null 2>&1 & done; wait")
+        }
+    }
+    [void]$commands.Add('ip neigh')
+    [void]$commands.Add('/opt/vyatta/bin/vyatta-op-cmd-wrapper show arp')
+    $raw = Invoke-EdgeRouterCommand -Command ($commands -join '; ')
+
+    $items = New-Object System.Collections.ArrayList
+    $seen = @{}
+    foreach ($line in ($raw -split "`r?`n")) {
+        $trim = $line.Trim()
+        if (-not $trim) { continue }
+
+        $ipAddr = $null
+        $macAddr = $null
+        $state = ''
+        $ifaceName = ''
+
+        if ($trim -match '^(?<ip>\d{1,3}(?:\.\d{1,3}){3})\s+dev\s+(?<iface>\S+)\s+lladdr\s+(?<mac>(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2})(?:\s+\S+)*\s+(?<state>[A-Z]+)$') {
+            $ipAddr = $matches['ip']
+            $ifaceName = $matches['iface']
+            $macAddr = $matches['mac'].ToLowerInvariant()
+            $state = $matches['state']
+        }
+        elseif ($trim -match '^(?<ip>\d{1,3}(?:\.\d{1,3}){3})\s+\S+\s+(?<mac>(?i)(?:[0-9a-f]{2}:){5}[0-9a-f]{2})\s+\S+\s+\S+\s+(?<iface>\S+)$') {
+            $ipAddr = $matches['ip']
+            $ifaceName = $matches['iface']
+            $macAddr = $matches['mac'].ToLowerInvariant()
+            $state = 'ARP'
+        }
+
+        if (-not $ipAddr -or -not $macAddr) { continue }
+        if ($trim -match '(?i)\bFAILED\b|\bINCOMPLETE\b') { continue }
+
+        $name = ''
+        if ($leaseByIp.ContainsKey($ipAddr)) { $name = [string]$leaseByIp[$ipAddr].Host }
+        if ([string]::IsNullOrWhiteSpace($name) -and $leaseByMac.ContainsKey($macAddr)) { $name = [string]$leaseByMac[$macAddr].Host }
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = '-' }
+
+        $key = "$ipAddr|$macAddr"
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+
+        [void]$items.Add([pscustomobject]@{
+            IP = $ipAddr
+            MAC = $macAddr
+            Nome = $name
+            Estado = $state
+            Interface = $ifaceName
+        })
+    }
+
+    return @($items | Sort-Object @{Expression={ try { [version]$_.IP } catch { [version]'0.0.0.0' } }}, Interface)
+}
+
+function Show-QosOnlineClients {
+    $items = @(Get-OnlineClientsSnapshot)
+    if (-not $items -or $items.Count -eq 0) {
+        $msg = "Nenhum cliente online foi encontrado na tabela ARP/neigh neste momento.`r`n`r`nDica: gere tráfego dos dispositivos e tente novamente."
+        Set-OutputText -Target $txtQosOut -Content $msg -Title 'Clientes online agora'
+        Write-AppLog 'Nenhum cliente online encontrado para a aba QoS.'
+        return
+    }
+
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add(("{0,-15}  {1,-17}  {2,-28}  {3,-10}  {4}" -f 'IP','MAC','NOME','ESTADO','IFACE'))
+    [void]$lines.Add(("{0,-15}  {1,-17}  {2,-28}  {3,-10}  {4}" -f ('-'*15),('-'*17),('-'*28),('-'*10),('-'*8)))
+    foreach ($item in $items) {
+        [void]$lines.Add(("{0,-15}  {1,-17}  {2,-28}  {3,-10}  {4}" -f $item.IP,$item.MAC,$item.Nome,$item.Estado,$item.Interface))
+    }
+    Set-OutputText -Target $txtQosOut -Content ($lines -join "`r`n") -Title 'Clientes online agora'
+    Write-AppLog "Clientes online listados na aba QoS: $($items.Count)"
+}
+
+
+function Convert-IPv4ToUInt32 {
+    param([string]$IPAddress)
+    if (-not (Test-IPv4Address $IPAddress)) { throw "IP inválido: $IPAddress" }
+    $bytes = [System.Net.IPAddress]::Parse($IPAddress).GetAddressBytes()
+    [array]::Reverse($bytes)
+    return [BitConverter]::ToUInt32($bytes, 0)
+}
+
+function Test-IPv4InCidr {
+    param(
+        [string]$IPAddress,
+        [string]$Cidr
+    )
+    if (-not (Test-IPv4Address $IPAddress)) { return $false }
+    if ($Cidr -notmatch '^(\d{1,3}(?:\.\d{1,3}){3})\/(\d{1,2})$') { return $false }
+    $network = $matches[1]
+    $prefix = [int]$matches[2]
+    if ($prefix -lt 0 -or $prefix -gt 32) { return $false }
+    $ipUint = Convert-IPv4ToUInt32 -IPAddress $IPAddress
+    $netUint = Convert-IPv4ToUInt32 -IPAddress $network
+    if ($prefix -eq 0) { return $true }
+    if ($prefix -eq 32) {
+        $mask = [uint32]4294967295
+    } else {
+        $maskCalc = ([uint64][math]::Pow(2, $prefix) - 1) * [uint64][math]::Pow(2, (32 - $prefix))
+        $mask = [uint32]$maskCalc
+    }
+    return (($ipUint -band $mask) -eq ($netUint -band $mask))
+}
+
+function Get-LanInterfaceForCurrentRouter {
+    $cfgLines = Get-EdgeConfigLines
+    $routerIp = $txtIp.Text.Trim()
+    $candidates = New-Object System.Collections.ArrayList
+    foreach ($line in $cfgLines) {
+        if ($line -match '^set interfaces (switch|ethernet) (\S+) address (\d{1,3}(?:\.\d{1,3}){3}\/\d{1,2})$') {
+            $ifaceName = $matches[2]
+            $cidr = $matches[3]
+            if ($routerIp -and (Test-IPv4InCidr -IPAddress $routerIp -Cidr $cidr)) { return $ifaceName }
+            if ($ifaceName -eq 'switch0') {
+                if ($candidates -notcontains $ifaceName) { [void]$candidates.Add($ifaceName) }
+                continue
+            }
+            if ($cidr -match '^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)') {
+                if ($candidates -notcontains $ifaceName) { [void]$candidates.Add($ifaceName) }
+            }
+        }
+    }
+    if ($candidates.Count -gt 0) { return [string]$candidates[0] }
+    return 'switch0'
+}
+
+function Get-LanInboundFirewallRuleset {
+    param([string]$Interface)
+    $cfgLines = Get-EdgeConfigLines
+    $esc = [regex]::Escape($Interface)
+    foreach ($line in $cfgLines) {
+        if ($line -match "^set interfaces (switch|ethernet) $esc firewall in name (\S+)$") { return $matches[2] }
+    }
+    return ''
+}
+
+function Get-NextFirewallRuleId {
+    param(
+        [string]$Ruleset,
+        [int]$Start = 5000,
+        [int]$End = 5999
+    )
+    $cfgLines = Get-EdgeConfigLines
+    $ids = New-Object System.Collections.ArrayList
+    $esc = [regex]::Escape($Ruleset)
+    foreach ($line in $cfgLines) {
+        if ($line -match "^set firewall name $esc rule (\d+) ") {
+            [void]$ids.Add([int]$matches[1])
+        }
+    }
+    return Get-NextFreeNumericId -UsedIds @($ids) -Start $Start -End $End
+}
+
+function Get-P2PBlockEntries {
+    $cfgLines = Get-EdgeConfigLines
+    $map = @{}
+    foreach ($line in $cfgLines) {
+        if ($line -match "^set firewall name (\S+) rule (\d+) description '?APP_P2P_BLOCK_(\d{1,3}(?:\.\d{1,3}){3})'?$") {
+            $key = "$($matches[1])|$($matches[2])"
+            if (-not $map.ContainsKey($key)) {
+                $map[$key] = [ordered]@{
+                    Ruleset = $matches[1]
+                    Rule    = [int]$matches[2]
+                    IP      = $matches[3]
+                    Source  = ''
+                    Action  = ''
+                    Category= ''
+                    Description = "APP_P2P_BLOCK_$($matches[3])"
+                }
+            }
+            continue
+        }
+        if ($line -match '^set firewall name (\S+) rule (\d+) source address (\d{1,3}(?:\.\d{1,3}){3})$') {
+            $key = "$($matches[1])|$($matches[2])"
+            if ($map.ContainsKey($key)) { $map[$key].Source = $matches[3] }
+            continue
+        }
+        if ($line -match '^set firewall name (\S+) rule (\d+) action (\S+)$') {
+            $key = "$($matches[1])|$($matches[2])"
+            if ($map.ContainsKey($key)) { $map[$key].Action = $matches[3] }
+            continue
+        }
+        if ($line -match '^set firewall name (\S+) rule (\d+) application category (\S+)$') {
+            $key = "$($matches[1])|$($matches[2])"
+            if ($map.ContainsKey($key)) { $map[$key].Category = $matches[3] }
+            continue
+        }
+    }
+    $items = New-Object System.Collections.ArrayList
+    foreach ($key in ($map.Keys | Sort-Object)) {
+        $obj = [pscustomobject]$map[$key]
+        if (-not $obj.IP -and $obj.Source) { $obj.IP = $obj.Source }
+        [void]$items.Add($obj)
+    }
+    return @($items)
+}
+
+function Get-P2PBlocksOverview {
+    $items = @(Get-P2PBlockEntries)
+    if ($items.Count -eq 0) { return 'Nenhum bloqueio P2P/Torrent encontrado.' }
+    $lines = New-Object System.Collections.ArrayList
+    [void]$lines.Add(('Total de bloqueios: {0}' -f $items.Count))
+    [void]$lines.Add('')
+    [void]$lines.Add(('{0,-18}  {1,-8}  {2,-12}  {3}' -f 'IP','REGRA','RULESET','CATEGORIA'))
+    [void]$lines.Add(('{0,-18}  {1,-8}  {2,-12}  {3}' -f ('-'*18),('-'*8),('-'*12),('-'*9)))
+    foreach ($item in $items) {
+        [void]$lines.Add(('{0,-18}  {1,-8}  {2,-12}  {3}' -f $item.IP,$item.Rule,$item.Ruleset,$item.Category))
+    }
+    return ($lines -join "`r`n")
+}
+
+function Refresh-P2PBlocks {
+    $content = Get-P2PBlocksOverview
+    Set-OutputText -Target $txtQosOut -Content $content -Title 'Bloqueios P2P/Torrent'
+    $count = @(Get-P2PBlockEntries).Count
+    Write-AppLog "Bloqueios P2P/Torrent lidos: $count"
+}
+
+function Apply-P2PBlockForDevice {
+    $ipDev = $txtQosDevIp.Text.Trim()
+    if (-not (Test-IPv4Address $ipDev)) { throw 'Informe um IP interno válido para bloquear P2P/Torrent.' }
+    $lanIf = Get-LanInterfaceForCurrentRouter
+    if ([string]::IsNullOrWhiteSpace($lanIf)) { throw 'Não foi possível detectar a interface LAN para aplicar o bloqueio DPI.' }
+    $attachedRuleset = Get-LanInboundFirewallRuleset -Interface $lanIf
+    $ruleset = if ([string]::IsNullOrWhiteSpace($attachedRuleset)) { 'DPI_P2P_APP' } else { $attachedRuleset }
+    $existing = @(Get-P2PBlockEntries | Where-Object { $_.IP -eq $ipDev })
+    $ruleId = if ($existing.Count -gt 0) { [int]$existing[0].Rule } else { Get-NextFirewallRuleId -Ruleset $ruleset -Start 5000 -End 5999 }
+    $desc = "APP_P2P_BLOCK_$ipDev"
+    $parts = Get-InterfacePathParts -Interface $lanIf
+    $ifaceType = $parts[0]
+    $ifaceName = $parts[1]
+
+    $cmds = @(
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set system traffic-analysis dpi enable',
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set system traffic-analysis export enable'
+    )
+    foreach ($entry in $existing) {
+        $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall name $($entry.Ruleset) rule $($entry.Rule)"
+    }
+    if ([string]::IsNullOrWhiteSpace($attachedRuleset)) {
+        $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $ruleset default-action accept"
+        $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set interfaces $ifaceType $ifaceName firewall in name $ruleset"
+    }
+    $cmds += @(
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $ruleset rule $ruleId description '$desc'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $ruleset rule $ruleId action drop",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $ruleset rule $ruleId source address $ipDev",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $ruleset rule $ruleId application category P2P",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $ruleset rule $ruleId log enable"
+    )
+    $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "P2P_BLOCK_${ipDev}"
+    $script:ConfigCommandsCache = $null
+    $summary = @(
+        "Interface LAN: $lanIf",
+        "Ruleset: $ruleset",
+        "Regra: $ruleId",
+        "IP bloqueado: $ipDev",
+        "Categoria DPI: P2P",
+        '',
+        'Saída do roteador:',
+        $out,
+        '',
+        'Bloqueios atuais:',
+        (Get-P2PBlocksOverview)
+    ) -join "`r`n"
+    Set-OutputText -Target $txtQosOut -Content $summary -Title 'Bloqueio P2P/Torrent por IP (DPI)'
+    Write-AppLog "Bloqueio P2P/Torrent aplicado para ${ipDev} no ruleset ${ruleset}, regra $ruleId"
+}
+
+function Remove-P2PBlockForDevice {
+    $ipDev = $txtQosDevIp.Text.Trim()
+    if (-not (Test-IPv4Address $ipDev)) { throw 'Informe o IP interno para remover o bloqueio P2P/Torrent.' }
+    $entries = @(Get-P2PBlockEntries | Where-Object { $_.IP -eq $ipDev })
+    if ($entries.Count -eq 0) { throw 'Não há bloqueio P2P/Torrent criado pelo app para este IP.' }
+    $cmds = @()
+    foreach ($entry in $entries) {
+        $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall name $($entry.Ruleset) rule $($entry.Rule)"
+    }
+    $lanIf = Get-LanInterfaceForCurrentRouter
+    $parts = Get-InterfacePathParts -Interface $lanIf
+    $ifaceType = $parts[0]
+    $ifaceName = $parts[1]
+    $cfgLines = Get-EdgeConfigLines
+    $hasOtherAppRules = @($cfgLines | Where-Object { $_ -match '^set firewall name DPI_P2P_APP rule \d+ ' -and $_ -notmatch [regex]::Escape($ipDev) }).Count -gt 0
+    $hasAppRuleset = @($cfgLines | Where-Object { $_ -match '^set firewall name DPI_P2P_APP ' -or $_ -match '^set interfaces (switch|ethernet) \S+ firewall in name DPI_P2P_APP$' }).Count -gt 0
+    if ((-not $hasOtherAppRules) -and $hasAppRuleset) {
+        $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete interfaces $ifaceType $ifaceName firewall in name DPI_P2P_APP"
+        $cmds += '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall name DPI_P2P_APP'
+    }
+    $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "P2P_UNBLOCK_${ipDev}"
+    $script:ConfigCommandsCache = $null
+    $summary = @(
+        $out,
+        '',
+        'Bloqueios atuais:',
+        (Get-P2PBlocksOverview)
+    ) -join "`r`n"
+    Set-OutputText -Target $txtQosOut -Content $summary -Title 'Bloqueio P2P/Torrent removido'
+    Write-AppLog "Bloqueio P2P/Torrent removido para ${ipDev}"
 }
 
 function Get-NextFreeNumericId {
@@ -1676,10 +2128,23 @@ function Refresh-DnsBlockedDomains {
     $txtDnsOut.Text = (($lstDnsDomains.ItemsSource | ForEach-Object { $_ }) -join "`r`n")
 }
 
+function Set-WpfToolTipSafe {
+    param(
+        $Control,
+        [string]$Text
+    )
+    try {
+        if ($null -eq $Control) { return }
+        if (-not ($Control -is [System.Windows.DependencyObject])) { return }
+        [System.Windows.FrameworkElement]::ToolTipProperty | Out-Null
+        $Control.SetValue([System.Windows.FrameworkElement]::ToolTipProperty, $Text)
+    } catch {}
+}
+
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="EdgeRouter Suite Friendly - WPF Preview v16 QoS dispositivo AQ fix3"
+        Title="EdgeRouter Suite Friendly - WPF Preview v20 DPI / Offload"
         Width="1320" Height="920" MinWidth="1180" MinHeight="760"
         WindowStartupLocation="CenterScreen" Background="#FFF4F6F8">
     <DockPanel LastChildFill="True" Margin="10">
@@ -1856,44 +2321,163 @@ function Refresh-DnsBlockedDomains {
                     <TabControl x:Name="tabFwSub" Background="White">
                         <TabItem Header="Regras">
                             <Grid Margin="10">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="110"/>
-                                    <ColumnDefinition Width="280"/>
-                                    <ColumnDefinition Width="16"/>
-                                    <ColumnDefinition Width="110"/>
-                                    <ColumnDefinition Width="280"/>
-                                    <ColumnDefinition Width="*"/>
-                                </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
                                     <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
+                                    <RowDefinition Height="*"/>
                                 </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Grid.ColumnSpan="5" Text="Regras de firewall" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Firewall:" VerticalAlignment="Center"/>
-                                <TextBox x:Name="txtFwName" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="LAN_IN"/>
-                                <TextBlock Grid.Row="1" Grid.Column="3" Text="Rule ID:" VerticalAlignment="Center"/>
-                                <TextBox x:Name="txtFwRule" Grid.Row="1" Grid.Column="4" Height="28" Margin="6,0,0,8" Text="100"/>
-                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Ação:" VerticalAlignment="Center"/>
-                                <ComboBox x:Name="cmbFwAction" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,0,8" SelectedIndex="0">
-                                    <ComboBoxItem Content="accept"/>
-                                    <ComboBoxItem Content="drop"/>
-                                    <ComboBoxItem Content="reject"/>
-                                </ComboBox>
-                                <TextBlock Grid.Row="2" Grid.Column="3" Text="Origem:" VerticalAlignment="Center"/>
-                                <TextBox x:Name="txtFwSource" Grid.Row="2" Grid.Column="4" Height="28" Margin="6,0,0,8"/>
-                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Descrição:" VerticalAlignment="Center"/>
-                                <TextBox x:Name="txtFwDesc" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="4" Height="28" Margin="6,0,0,8"/>
-                                <TextBlock Grid.Row="4" Grid.ColumnSpan="5" Text="Use a subaba Saída / Diagnóstico para ver o retorno completo dos comandos." Foreground="#666666" Margin="0,6,0,12"/>
-                                <WrapPanel Grid.Row="5" Grid.ColumnSpan="5">
-                                    <Button x:Name="btnFwListar" Content="Listar Regras" Width="150" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
-                                    <Button x:Name="btnFwCriar" Content="Criar Regra" Width="150" Height="34" Background="#F3E58A"/>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1*"/>
+                                    <ColumnDefinition Width="12"/>
+                                    <ColumnDefinition Width="1*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <Border Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="3" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="120"/>
+                                            <ColumnDefinition Width="250"/>
+                                            <ColumnDefinition Width="20"/>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="260"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="5" Text="Regras de firewall" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Ruleset / chain:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtFwName" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="LAN_IN"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="3" Text="Rule ID:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtFwRule" Grid.Row="1" Grid.Column="4" Height="28" Margin="6,0,0,8" Text="100"/>
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Ação:" VerticalAlignment="Center"/>
+                                        <ComboBox x:Name="cmbFwAction" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,0,8" SelectedIndex="1">
+                                            <ComboBoxItem Content="accept"/>
+                                            <ComboBoxItem Content="drop"/>
+                                            <ComboBoxItem Content="reject"/>
+                                        </ComboBox>
+                                        <TextBlock Grid.Row="2" Grid.Column="3" Text="IP interno (origem):" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtFwSource" Grid.Row="2" Grid.Column="4" Height="28" Margin="6,0,0,8"/>
+
+                                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Destino:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtFwDest" Grid.Row="3" Grid.Column="1" Height="28" Margin="6,0,0,8"/>
+                                        <TextBlock Grid.Row="3" Grid.Column="3" Text="Protocolo:" VerticalAlignment="Center"/>
+                                        <ComboBox x:Name="cmbFwProto" Grid.Row="3" Grid.Column="4" Height="28" Margin="6,0,0,8" SelectedIndex="0">
+                                            <ComboBoxItem Content="any"/>
+                                            <ComboBoxItem Content="tcp"/>
+                                            <ComboBoxItem Content="udp"/>
+                                            <ComboBoxItem Content="tcp_udp"/>
+                                            <ComboBoxItem Content="icmp"/>
+                                        </ComboBox>
+
+                                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Porta dest.:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtFwPort" Grid.Row="4" Grid.Column="1" Height="28" Margin="6,0,0,8"/>
+                                        <TextBlock Grid.Row="4" Grid.Column="3" Text="Descrição:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtFwDesc" Grid.Row="4" Grid.Column="4" Height="28" Margin="6,0,0,8"/>
+                                    </Grid>
+                                </Border>
+
+                                <TextBlock Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3" Text="Use LAN_IN para clientes internos. Use WAN_IN/WAN_LOCAL para tráfego vindo das WANs para a LAN ou para o próprio roteador." Foreground="#666666" Margin="0,2,0,6" TextWrapping="Wrap"/>
+
+                                <WrapPanel Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="3" Margin="0,0,0,8">
+                                    <Button x:Name="btnFwListar" Content="Listar Regras" Width="130" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                                    <Button x:Name="btnFwCriar" Content="Criar Regra" Width="130" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                                    <Button x:Name="btnFwBlockInternet" Content="Bloquear Internet do IP" Width="170" Height="34" Margin="0,0,8,0" Background="#F28B82"/>
+                                    <Button x:Name="btnFwAllowWebDns" Content="Permitir Só Web/DNS" Width="170" Height="34" Margin="0,0,8,0" Background="#A8E6A1"/>
+                                    <Button x:Name="btnFwBlockPort" Content="Bloquear Porta/Proto" Width="160" Height="34" Margin="0,0,8,0" Background="#F6D58E"/>
+                                    <Button x:Name="btnFwReadManaged" Content="Ler Regras do App" Width="160" Height="34" Margin="0,0,8,0" Background="#E6F0FF"/>
+                                    <Button x:Name="btnFwRemoveManaged" Content="Remover Regra Selecionada" Width="200" Height="34" Background="#F28B82"/>
                                 </WrapPanel>
+
+                                <Grid Grid.Row="6" Grid.Column="0" Grid.ColumnSpan="3">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="1.2*"/>
+                                        <ColumnDefinition Width="12"/>
+                                        <ColumnDefinition Width="1.0*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <DataGrid x:Name="dgFwManaged" Grid.Column="0" AutoGenerateColumns="False" CanUserAddRows="False" CanUserDeleteRows="False" IsReadOnly="True" HeadersVisibility="Column" Margin="0" MinHeight="260">
+                                        <DataGrid.Columns>
+                                            <DataGridTextColumn Header="Firewall" Binding="{Binding Firewall}" Width="90"/>
+                                            <DataGridTextColumn Header="Regra" Binding="{Binding Rule}" Width="60"/>
+                                            <DataGridTextColumn Header="Ação" Binding="{Binding Action}" Width="70"/>
+                                            <DataGridTextColumn Header="Origem" Binding="{Binding Source}" Width="120"/>
+                                            <DataGridTextColumn Header="Destino" Binding="{Binding Destination}" Width="120"/>
+                                            <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="70"/>
+                                            <DataGridTextColumn Header="Porta" Binding="{Binding Port}" Width="70"/>
+                                            <DataGridTextColumn Header="Descrição" Binding="{Binding Description}" Width="*"/>
+                                        </DataGrid.Columns>
+                                    </DataGrid>
+                                    <TextBox x:Name="txtFwInline" Grid.Column="2" Margin="0" MinHeight="260" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Visible" IsReadOnly="True"/>
+                                </Grid>
                             </Grid>
                         </TabItem>
+
+                        <TabItem Header="Conexões / Captura">
+                            <Grid Margin="10">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="8"/>
+                                    <RowDefinition Height="*"/>
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="100"/>
+                                            <ColumnDefinition Width="180"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="70"/>
+                                            <ColumnDefinition Width="90"/>
+                                            <ColumnDefinition Width="14"/>
+                                            <ColumnDefinition Width="80"/>
+                                            <ColumnDefinition Width="140"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="8" Text="Conexões ativas e captura rápida" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="IP alvo:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtTraceIp" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,0,8"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="3" Text="Segs:" VerticalAlignment="Center"/>
+                                        <TextBox x:Name="txtTraceSeconds" Grid.Row="1" Grid.Column="4" Height="28" Margin="6,0,0,8" Text="12"/>
+                                        <TextBlock Grid.Row="1" Grid.Column="6" Text="Interface:" VerticalAlignment="Center"/>
+                                        <ComboBox x:Name="cmbTraceIface" Grid.Row="1" Grid.Column="7" Height="28" Margin="6,0,0,8" SelectedIndex="0">
+                                            <ComboBoxItem Content="any"/>
+                                            <ComboBoxItem Content="switch0"/>
+                                            <ComboBoxItem Content="eth0"/>
+                                            <ComboBoxItem Content="eth1"/>
+                                            <ComboBoxItem Content="eth2"/>
+                                            <ComboBoxItem Content="eth3"/>
+                                            <ComboBoxItem Content="eth4"/>
+                                            <ComboBoxItem Content="pppoe0"/>
+                                        </ComboBox>
+                                        <WrapPanel Grid.Row="2" Grid.ColumnSpan="8">
+                                            <Button x:Name="btnTraceConntrack" Content="Ver Conexões Ativas" Width="150" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                                            <Button x:Name="btnTraceTcpdump" Content="Captura Rápida" Width="130" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                                            <TextBox x:Name="txtTraceSearch" Width="220" Height="28" Margin="0,3,8,0"/>
+                                            <Button x:Name="btnTraceSearch" Content="Pesquisar no Navegador" Width="170" Height="34" Background="#E6F0FF"/>
+                                        </WrapPanel>
+                                    </Grid>
+                                </Border>
+                                <TextBlock Grid.Row="2" Text="Dica: use o IP interno suspeito. O relatório mostra conntrack e uma captura rápida para ajudar a identificar destinos, portas e padrão de tráfego." Foreground="#666666" Margin="0,4,0,6" TextWrapping="Wrap"/>
+                                <TextBox x:Name="txtTraceOut" Grid.Row="4" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Visible" IsReadOnly="True"/>
+                            </Grid>
+                        </TabItem>
+
                         <TabItem Header="NAT / Port Forward">
 <Grid Margin="10">
                     <Grid.ColumnDefinitions>
@@ -2035,6 +2619,7 @@ function Refresh-DnsBlockedDomains {
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
                                                     <RowDefinition Height="*"/>
                                                 </Grid.RowDefinitions>
                                                 <Grid.ColumnDefinitions>
@@ -2060,13 +2645,18 @@ function Refresh-DnsBlockedDomains {
                                                 <TextBox x:Name="txtQosDevTotalUp" Grid.Row="3" Grid.Column="3" Height="28" Margin="6,0,0,8" Text="325"/>
 
                                                 <TextBlock Grid.Row="4" Grid.ColumnSpan="4" Text="Este modo usa Advanced Queue global para limitar o IP em download e upload. Remova Smart Queue antes de usar." Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,10"/>
-                                                <WrapPanel Grid.Row="5" Grid.ColumnSpan="4" Margin="0,0,0,10">
-                                                    <Button x:Name="btnQosDevUseLease" Content="Usar Lease Selecionado" Width="150" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                                                <WrapPanel Grid.Row="5" Grid.ColumnSpan="4" Margin="0,0,0,8">
+                                                    <Button x:Name="btnQosDevUseLease" Content="Listar online agora" Width="150" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
                                                     <Button x:Name="btnQosDevRead" Content="Ler limites" Width="120" Height="34" Margin="0,0,8,0" Background="#DDEEFF"/>
                                                     <Button x:Name="btnQosDevApply" Content="Aplicar limite" Width="140" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
                                                     <Button x:Name="btnQosDevRemove" Content="Remover limite selecionado" Width="200" Height="34" Background="#F28585"/>
                                                 </WrapPanel>
-                                                <DataGrid x:Name="dgQosDevicePolicies" Grid.Row="6" Grid.ColumnSpan="4" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" FontFamily="Consolas" FontSize="13">
+                                                <WrapPanel Grid.Row="6" Grid.ColumnSpan="4" Margin="0,0,0,10">
+                                                    <Button x:Name="btnP2PRead" Content="Ler Bloqueios P2P" Width="150" Height="34" Margin="0,0,8,0" Background="#DDEEFF"/>
+                                                    <Button x:Name="btnP2PBlock" Content="Bloquear P2P/Torrent" Width="180" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                                                    <Button x:Name="btnP2PRemove" Content="Remover Bloqueio P2P" Width="180" Height="34" Background="#F28585"/>
+                                                </WrapPanel>
+                                                <DataGrid x:Name="dgQosDevicePolicies" Grid.Row="7" Grid.ColumnSpan="4" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" FontFamily="Consolas" FontSize="13">
                                                     <DataGrid.Columns>
                                                         <DataGridTextColumn Header="IP" Binding="{Binding IP}" Width="120"/>
                                                         <DataGridTextColumn Header="Download" Binding="{Binding Download}" Width="90"/>
@@ -2398,14 +2988,23 @@ function Refresh-DnsBlockedDomains {
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
                     <Border Grid.Row="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
-                        <WrapPanel>
-                            <TextBlock Text="Host/IP:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBox x:Name="txtToolHost" Width="220" Height="28" Margin="0,0,8,8"/>
-                            <Button x:Name="btnPing" Content="Ping" Width="100" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
-                            <Button x:Name="btnDnsLookup" Content="DNS Test" Width="120" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
-                            <Button x:Name="btnBackup" Content="Backup da Config" Width="150" Height="34" Margin="0,0,8,8" Background="#47C37C"/>
-                            <Button x:Name="btnOpenLogs" Content="Abrir Pasta Logs" Width="150" Height="34" Background="#F6F8FA"/>
-                        </WrapPanel>
+                        <StackPanel>
+                            <WrapPanel>
+                                <TextBlock Text="Host/IP:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBox x:Name="txtToolHost" Width="220" Height="28" Margin="0,0,8,8"/>
+                                <Button x:Name="btnPing" Content="Ping" Width="100" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
+                                <Button x:Name="btnDnsLookup" Content="DNS Test" Width="120" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
+                                <Button x:Name="btnBackup" Content="Backup da Config" Width="150" Height="34" Margin="0,0,8,8" Background="#47C37C"/>
+                                <Button x:Name="btnOpenLogs" Content="Abrir Pasta Logs" Width="150" Height="34" Margin="0,0,8,8" Background="#F6F8FA"/>
+                            </WrapPanel>
+                            <Separator Margin="0,4,0,8"/>
+                            <WrapPanel>
+                                <Button x:Name="btnPerfRead" Content="Ler Status DPI/Offload" Width="180" Height="34" Margin="0,0,8,8" Background="#8FD3FF"/>
+                                <Button x:Name="btnPerfAnalysis" Content="Modo análise de tráfego" Width="190" Height="34" Margin="0,0,8,8" Background="#F3E58A"/>
+                                <Button x:Name="btnPerfPerformance" Content="Modo desempenho" Width="160" Height="34" Margin="0,0,8,8" Background="#47C37C"/>
+                            </WrapPanel>
+                            <TextBlock x:Name="txtPerfExplain" TextWrapping="Wrap" Foreground="#44546A" Margin="0,2,0,0" Text="DPI ligado = melhor para investigar consumo por aplicação. Pode reduzir desempenho. Modo desempenho = desliga DPI/export e tenta religar offload para o dia a dia."/>
+                        </StackPanel>
                     </Border>
                     <TextBox x:Name="txtLog" Grid.Row="2" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Visible" IsReadOnly="True"/>
                 </Grid>
@@ -2423,10 +3022,10 @@ $names = @(
     'btnDashResumo','btnDashRede','btnDashLeases','txtDashOut',
     'btnDhcpLer','btnDhcpLerReservas','dgDhcpLeases','dgDhcpReservations','txtDhcpOut','txtPool','txtSubnet','txtHost','txtMac','txtIpFix','btnUsarLease','btnCriarReserva','btnRemoverReserva','btnLimparDhcp',
     'txtRuleNat','txtInIf','txtPortExt','txtIPInt','txtPortInt','cmbNatProto','txtDescNat','btnNatListar','btnNatCriar','txtNatOut',
-    'tabFwSub','txtFwName','txtFwRule','cmbFwAction','txtFwSource','txtFwDesc','btnFwListar','btnFwCriar','txtFwOut','tabQosSub','cmbQosFriendlyGoal','cmbQosFriendlyLevel','txtQosFriendlyIface','txtQosFriendlyPolicy','txtQosFriendlyDownReal','txtQosFriendlyUpReal','txtQosFriendlyDownApply','txtQosFriendlyUpApply','txtQosFriendlyExplain','btnQosFriendlyPreview','btnQosFriendlyRead','btnQosFriendlyApply','btnQosFriendlyRemove','txtQosDevIp','txtQosDevDown','txtQosDevUp','txtQosDevTotalDown','txtQosDevTotalUp','txtQosDevNote','btnQosDevUseLease','btnQosDevRead','btnQosDevApply','btnQosDevRemove','dgQosDevicePolicies','txtQosPolicy','txtQosIface','txtQosDown','txtQosUp','btnQosPresetDefault','btnQosPresetCalls','btnQosPresetMeet','btnQosPresetGames','btnQosRead','btnQosApply','btnQosRemove','txtQosOut',
+    'tabFwSub','txtFwName','txtFwRule','cmbFwAction','txtFwSource','txtFwDest','cmbFwProto','txtFwPort','txtFwDesc','btnFwListar','btnFwCriar','btnFwBlockInternet','btnFwAllowWebDns','btnFwBlockPort','btnFwReadManaged','btnFwRemoveManaged','dgFwManaged','txtFwInline','txtFwOut','txtTraceIp','txtTraceSeconds','cmbTraceIface','btnTraceConntrack','btnTraceTcpdump','txtTraceSearch','btnTraceSearch','txtTraceOut','tabQosSub','cmbQosFriendlyGoal','cmbQosFriendlyLevel','txtQosFriendlyIface','txtQosFriendlyPolicy','txtQosFriendlyDownReal','txtQosFriendlyUpReal','txtQosFriendlyDownApply','txtQosFriendlyUpApply','txtQosFriendlyExplain','btnQosFriendlyPreview','btnQosFriendlyRead','btnQosFriendlyApply','btnQosFriendlyRemove','txtQosDevIp','txtQosDevDown','txtQosDevUp','txtQosDevTotalDown','txtQosDevTotalUp','txtQosDevNote','btnQosDevUseLease','btnQosDevRead','btnQosDevApply','btnQosDevRemove','dgQosDevicePolicies','txtQosPolicy','txtQosIface','txtQosDown','txtQosUp','btnQosPresetDefault','btnQosPresetCalls','btnQosPresetMeet','btnQosPresetGames','btnQosRead','btnQosApply','btnQosRemove','txtQosOut','btnP2PRead','btnP2PBlock','btnP2PRemove',
     'txtLbGroup','btnLbStatus','btnStickyOn','btnStickyOff','txtPbrRule','txtPbrIP','txtPbrWan','txtPbrTable','txtPbrModify','cmbPbrMode','btnPbrApply','chkPbrKillSwitch','txtLbWan1','txtLbWan2','txtLbWeight1','txtLbWeight2','btnLbPreset5050','btnLbApplyWeights','btnLbFailoverWan1','btnLbFailoverWan2','btnPbrLoadLeases','btnPbrUseLease','btnPbrReadPolicies','btnPbrRemovePolicy','dgPbrLeases','dgPbrPolicies','txtLbOut',
     'txtDnsDomain','btnDnsReadBlocked','btnBlockSite','btnUnblockSite','btnDnsRulesList','lstDnsDomains','txtDnsOut','txtDnsLan','txtDnsRouterIp','txtDnsHijackRule','btnDnsHijackOn','btnDnsHijackOff','txtDohRule','btnDohOn','btnDohOff',
-    'txtToolHost','btnPing','btnDnsLookup','btnBackup','btnOpenLogs','txtLog'
+    'txtToolHost','btnPing','btnDnsLookup','btnBackup','btnOpenLogs','btnPerfRead','btnPerfAnalysis','btnPerfPerformance','txtPerfExplain','txtLog'
 )
 foreach ($n in $names) { Set-Variable -Name $n -Value $window.FindName($n) -Scope Script }
 
@@ -2434,10 +3033,22 @@ if ($ip) { $txtIp.Text = $ip }
 if ($user) { $txtUser.Text = $user }
 if ($pass) { $txtPass.Password = $pass }
 if ($cmbQosFriendlyGoal -and $cmbQosFriendlyGoal.Items.Count -gt 0 -and $cmbQosFriendlyGoal.SelectedIndex -lt 0) { $cmbQosFriendlyGoal.SelectedIndex = 0 }
+if ($cmbTraceIface -and $cmbTraceIface.Items.Count -gt 0 -and $cmbTraceIface.SelectedIndex -lt 0) { $cmbTraceIface.SelectedIndex = 0 }
 if ($cmbQosFriendlyLevel -and $cmbQosFriendlyLevel.Items.Count -gt 0 -and $cmbQosFriendlyLevel.SelectedIndex -lt 0) { $cmbQosFriendlyLevel.SelectedIndex = 1 }
 Update-QosFriendlyPreview
 
-$btnLangToggle.Add_Click({ Toggle-UiLanguage })
+$window.Add_ContentRendered({
+    try {
+        $wa = [System.Windows.SystemParameters]::WorkArea
+        $left = [Math]::Round($wa.Left + [Math]::Max(0, (($wa.Width - $window.ActualWidth) / 2)))
+        $top = [Math]::Round($wa.Top + [Math]::Max(24, (($wa.Height - $window.ActualHeight) / 2)))
+        $window.Left = $left
+        $window.Top = $top
+        if ($window.Top -lt ($wa.Top + 24)) { $window.Top = $wa.Top + 24 }
+    } catch {}
+})
+
+if ($btnLangToggle) { $btnLangToggle.Add_Click({ Toggle-UiLanguage }) }
 
 $btnAbout.Add_Click({
     Show-UiMessage -Title (Get-UiText 'Sobre a versão WPF') -Message (Get-UiText "Isto é um protótipo WPF paralelo ao fix16.`r`n`r`nObjetivo:`r`n- comparar aproveitamento de espaço`r`n- testar grids, rolagem e layout`r`n- preservar a lógica PowerShell/SSH que já funcionou no fix16`r`n- testar perfis rápidos de QoS, PBR por WAN e o modo WAN preferida com kill switch")
@@ -2701,13 +3312,199 @@ $btnNatCriar.Add_Click({
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
+
+
+function Get-TraceFriendlySummary {
+    param(
+        [string]$RawText,
+        [string]$IpTarget,
+        [ValidateSet('conntrack','tcpdump')][string]$Mode
+    )
+    if ([string]::IsNullOrWhiteSpace($RawText)) { return $RawText }
+    $peerStats = @{}
+    $protoStats = @{}
+    $lineCount = 0
+    $totalBytes = 0
+
+    foreach ($line in ($RawText -split "`r?`n")) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        $lineCount++
+        $proto = ''
+        $peerKey = ''
+        $extra = ''
+
+        if ($Mode -eq 'tcpdump') {
+            $m = [regex]::Match($line, 'IP\s+(?<src>(?:\d{1,3}\.){3}\d{1,3})\.(?<sport>\d+)\s+>\s+(?<dst>(?:\d{1,3}\.){3}\d{1,3})\.(?<dport>\d+):\s+(?<proto>[A-Z]+).*?(?:length\s+(?<len>\d+))?')
+            if (-not $m.Success) { continue }
+            $src = $m.Groups['src'].Value
+            $dst = $m.Groups['dst'].Value
+            $sport = $m.Groups['sport'].Value
+            $dport = $m.Groups['dport'].Value
+            $proto = $m.Groups['proto'].Value.ToUpperInvariant()
+            $len = 0
+            if ($m.Groups['len'].Success) { [void][int]::TryParse($m.Groups['len'].Value, [ref]$len) }
+            $totalBytes += $len
+            if ($src -eq $IpTarget) {
+                $peerKey = "${dst}:$dport"
+                $extra = 'saindo'
+            } elseif ($dst -eq $IpTarget) {
+                $peerKey = "${src}:$sport"
+                $extra = 'entrando'
+            } else {
+                $peerKey = "${src}:$sport"
+            }
+        } else {
+            $m = [regex]::Match($line, '^(?<proto>tcp|udp|icmp)\s+\d+\s+\d+\s+(?<state>\S+)?\s*src=(?<src>(?:\d{1,3}\.){3}\d{1,3})\s+dst=(?<dst>(?:\d{1,3}\.){3}\d{1,3}).*?sport=(?<sport>\d+)\s+dport=(?<dport>\d+)')
+            if (-not $m.Success) { continue }
+            $src = $m.Groups['src'].Value
+            $dst = $m.Groups['dst'].Value
+            $sport = $m.Groups['sport'].Value
+            $dport = $m.Groups['dport'].Value
+            $proto = $m.Groups['proto'].Value.ToUpperInvariant()
+            $state = $m.Groups['state'].Value
+            if ($src -eq $IpTarget) {
+                $peerKey = "${dst}:$dport"
+                $extra = if ($state) { "saindo / $state" } else { 'saindo' }
+            } elseif ($dst -eq $IpTarget) {
+                $peerKey = "${src}:$sport"
+                $extra = if ($state) { "entrando / $state" } else { 'entrando' }
+            } else {
+                $peerKey = "${src}:$sport"
+            }
+        }
+
+        if (-not $protoStats.ContainsKey($proto)) { $protoStats[$proto] = 0 }
+        $protoStats[$proto]++
+
+        if (-not $peerStats.ContainsKey($peerKey)) {
+            $peerStats[$peerKey] = [ordered]@{ Packets = 0; Proto = $proto; Extra = $extra }
+        }
+        $peerStats[$peerKey].Packets++
+        if (-not $peerStats[$peerKey].Extra -and $extra) { $peerStats[$peerKey].Extra = $extra }
+    }
+
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine("Resumo amigável para $IpTarget")
+    [void]$sb.AppendLine(('=' * 32))
+    [void]$sb.AppendLine("Modo: $Mode")
+    [void]$sb.AppendLine("Linhas analisadas: $lineCount")
+    if ($Mode -eq 'tcpdump' -and $totalBytes -gt 0) {
+        [void]$sb.AppendLine("Bytes aproximados capturados: $totalBytes")
+    }
+    if ($protoStats.Count -gt 0) {
+        [void]$sb.AppendLine('Protocolos mais vistos:')
+        foreach ($kv in $protoStats.GetEnumerator() | Sort-Object Value -Descending) {
+            [void]$sb.AppendLine(("- {0}: {1}" -f $kv.Key, $kv.Value))
+        }
+    }
+    if ($peerStats.Count -gt 0) {
+        [void]$sb.AppendLine('Destinos/pares mais frequentes:')
+        foreach ($item in ($peerStats.GetEnumerator() | Sort-Object {$_.Value.Packets} -Descending | Select-Object -First 8)) {
+            $peer = $item.Key
+            $packets = $item.Value.Packets
+            $proto = $item.Value.Proto
+            $extra = $item.Value.Extra
+            if ($extra) {
+                [void]$sb.AppendLine(("- {0} | {1} | {2} pacotes | {3}" -f $peer, $proto, $packets, $extra))
+            } else {
+                [void]$sb.AppendLine(("- {0} | {1} | {2} pacotes" -f $peer, $proto, $packets))
+            }
+        }
+        $topPeer = ($peerStats.GetEnumerator() | Sort-Object {$_.Value.Packets} -Descending | Select-Object -First 1).Key
+        if ($topPeer) {
+            $ipOnly = ($topPeer -split ':')[0]
+            [void]$sb.AppendLine('')
+            [void]$sb.AppendLine("Sugestão de pesquisa: $topPeer")
+            [void]$sb.AppendLine("IP principal observado: $ipOnly")
+        }
+    } else {
+        [void]$sb.AppendLine('Nenhum padrão útil foi reconhecido automaticamente no texto retornado.')
+    }
+    [void]$sb.AppendLine('')
+    [void]$sb.AppendLine('Saída bruta:')
+    [void]$sb.AppendLine(('=' * 12))
+    [void]$sb.AppendLine($RawText)
+    return $sb.ToString().TrimEnd()
+}
+
+function Show-FirewallTraceConntrack {
+    $ipTarget = ''
+    if ($script:txtTraceIp -and $script:txtTraceIp.Text) { $ipTarget = $script:txtTraceIp.Text.Trim() }
+    if (-not $ipTarget -and $script:txtFwSource -and $script:txtFwSource.Text) { $ipTarget = $script:txtFwSource.Text.Trim() }
+    if (-not (Test-IPv4Address $ipTarget)) { throw 'Informe um IP alvo válido.' }
+    $script:txtTraceIp.Text = $ipTarget
+    $out = $null
+    $tryCommands = @(
+        "sudo conntrack -L | grep $ipTarget",
+        "conntrack -L | grep $ipTarget",
+        "/opt/vyatta/bin/vyatta-op-cmd-wrapper show conntrack table ipv4 | grep $ipTarget"
+    )
+    foreach ($cmd in $tryCommands) {
+        try {
+            $out = Invoke-EdgeRouterCommand -Command $cmd -Silent
+            if (-not [string]::IsNullOrWhiteSpace($out)) { break }
+        } catch {}
+    }
+    if ([string]::IsNullOrWhiteSpace($out)) { $out = 'Nenhuma conexão ativa encontrada para este IP.' }
+    $friendly = Get-TraceFriendlySummary -RawText $out -IpTarget $ipTarget -Mode conntrack
+    $m = [regex]::Match($friendly, 'Sugestão de pesquisa:\s+(?<q>.+)')
+    if ($m.Success -and $script:txtTraceSearch) {
+        $script:txtTraceSearch.Text = $m.Groups['q'].Value.Trim()
+    }
+    Set-OutputText -Target $txtTraceOut -Content $friendly -Title ('Conntrack de ' + $ipTarget)
+    Write-AppLog "Conexões ativas consultadas para $ipTarget"
+}
+
+function Show-FirewallTraceTcpdump {
+    $ipTarget = ''
+    if ($script:txtTraceIp -and $script:txtTraceIp.Text) { $ipTarget = $script:txtTraceIp.Text.Trim() }
+    if (-not $ipTarget -and $script:txtFwSource -and $script:txtFwSource.Text) { $ipTarget = $script:txtFwSource.Text.Trim() }
+    if (-not (Test-IPv4Address $ipTarget)) { throw 'Informe um IP alvo válido.' }
+    $secs = 12
+    if ($script:txtTraceSeconds -and $script:txtTraceSeconds.Text) { [void][int]::TryParse($script:txtTraceSeconds.Text.Trim(), [ref]$secs) }
+    if ($secs -lt 3) { $secs = 3 }
+    if ($secs -gt 60) { $secs = 60 }
+    $iface = 'any'
+    if ($script:cmbTraceIface -and $script:cmbTraceIface.SelectedItem) { $iface = [string]$script:cmbTraceIface.SelectedItem.Content }
+    $out = $null
+    $tryCommands = @(
+        "sudo tcpdump -n -i $iface host $ipTarget -c 80",
+        "tcpdump -n -i $iface host $ipTarget -c 80"
+    )
+    foreach ($cmd in $tryCommands) {
+        try {
+            $out = Invoke-EdgeRouterCommand -Command $cmd -Silent
+            if (-not [string]::IsNullOrWhiteSpace($out)) { break }
+        } catch {}
+    }
+    if ([string]::IsNullOrWhiteSpace($out)) { $out = 'Nenhum pacote capturado nesta janela. Tente durante o download/stream do IP alvo.' }
+    $friendly = Get-TraceFriendlySummary -RawText $out -IpTarget $ipTarget -Mode tcpdump
+    $m = [regex]::Match($friendly, 'Sugestão de pesquisa:\s+(?<q>.+)')
+    if ($m.Success -and $script:txtTraceSearch) {
+        $script:txtTraceSearch.Text = $m.Groups['q'].Value.Trim()
+    }
+    Set-OutputText -Target $txtTraceOut -Content $friendly -Title ('Tcpdump rápido de ' + $ipTarget + ' / iface ' + $iface)
+    Write-AppLog "Captura rápida executada para $ipTarget em $iface"
+}
+
+function Invoke-FirewallTraceSearch {
+    $query = ''
+    if ($script:txtTraceSearch -and $script:txtTraceSearch.Text) { $query = $script:txtTraceSearch.Text.Trim() }
+    if (-not $query -and $script:txtTraceIp -and $script:txtTraceIp.Text) { $query = $script:txtTraceIp.Text.Trim() }
+    if (-not $query) { throw 'Informe ou selecione um destino/porta para pesquisar.' }
+    $url = 'https://www.google.com/search?q=' + [uri]::EscapeDataString($query)
+    Start-Process $url | Out-Null
+    Write-AppLog "Pesquisa aberta no navegador: $query"
+}
+
 $btnFwListar.Add_Click({
     try {
         $fwName = $txtFwName.Text.Trim()
         if (-not $fwName) { $fwName = 'LAN_IN' }
         $out = Invoke-EdgeRouterCommand -Command "/opt/vyatta/bin/vyatta-op-cmd-wrapper show firewall name $fwName"
-        Set-OutputText -Target $txtFwOut -Content $out -Title "Firewall $fwName"
-        if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }
+        Set-FirewallOutput -Content $out -Title "Firewall $fwName"
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
+        Refresh-AppManagedFirewallRules | Out-Null
         Write-AppLog "Leitura do firewall $fwName executada."
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
@@ -2718,33 +3515,126 @@ $btnFwCriar.Add_Click({
         $rule = $txtFwRule.Text.Trim()
         $action = if ($cmbFwAction.SelectedItem) { $cmbFwAction.SelectedItem.Content.ToString() } else { 'accept' }
         $source = $txtFwSource.Text.Trim()
+        $dest = $txtFwDest.Text.Trim()
+        $proto = if ($cmbFwProto.SelectedItem) { $cmbFwProto.SelectedItem.Content.ToString() } else { 'any' }
+        $port = $txtFwPort.Text.Trim()
         $desc = $txtFwDesc.Text.Trim()
         if (-not $fwName -or -not $rule -or -not $action -or -not $source) { throw 'Preencha firewall name, rule ID, ação e origem.' }
-        if (-not $desc) { $desc = "Regra_app_$rule" }
+        if (-not $desc) { $desc = "APP_FW_$rule" }
         if (-not (Confirm-UiAction "Criar regra $rule no firewall $fwName para $source?")) { return }
-        $cmds = @(
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $fwName rule $rule description '$desc'",
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $fwName rule $rule action $action",
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $fwName rule $rule source address $source",
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set firewall name $fwName rule $rule log enable"
-        )
+        $cmds = New-AppFirewallRuleCommands -Firewall $fwName -Rule ([int]$rule) -Action $action -Source $source -Destination $dest -Protocol $proto -Port $port -Description $desc -EnableLog
         $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "Firewall_${fwName}_$rule"
-        Set-OutputText -Target $txtFwOut -Content $out -Title 'Resultado da regra de firewall'
-        if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }
+        Set-FirewallOutput -Content $out -Title 'Resultado da regra de firewall'
+        Refresh-AppManagedFirewallRules | Out-Null
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
         Write-AppLog "Regra de firewall criada: $fwName / $rule / $action / $source"
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
 
-$btnQosPresetDefault.Add_Click({ try { Set-QosQuickProfile 'DEFAULT'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
-$btnQosPresetCalls.Add_Click({ try { Set-QosQuickProfile 'CALLS'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
-$btnQosPresetMeet.Add_Click({ try { Set-QosQuickProfile 'MEET'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
-$btnQosPresetGames.Add_Click({ try { Set-QosQuickProfile 'GAMES'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnFwBlockInternet.Add_Click({
+    try {
+        $fwName = $txtFwName.Text.Trim(); if (-not $fwName) { $fwName = 'LAN_IN' }
+        $rule = [int]($txtFwRule.Text.Trim())
+        $source = $txtFwSource.Text.Trim()
+        if (-not $source) { throw 'Informe o IP de origem.' }
+        $desc = "APP_BLOCK_INET_" + ($source -replace '[^0-9A-Za-z_.-]','_')
+        if (-not (Confirm-UiAction "Bloquear internet do IP $source no firewall $fwName?")) { return }
+        $cmds = New-AppFirewallRuleCommands -Firewall $fwName -Rule $rule -Action 'drop' -Source $source -Destination '' -Protocol 'any' -Port '' -Description $desc -EnableLog
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "FwBlockInet_${fwName}_$rule"
+        Set-FirewallOutput -Content $out -Title 'Resultado do bloqueio por IP'
+        Refresh-AppManagedFirewallRules | Out-Null
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+$btnFwAllowWebDns.Add_Click({
+    try {
+        $fwName = $txtFwName.Text.Trim(); if (-not $fwName) { $fwName = 'LAN_IN' }
+        $baseRule = [int]($txtFwRule.Text.Trim())
+        $source = $txtFwSource.Text.Trim()
+        if (-not $source) { throw 'Informe o IP de origem.' }
+        if (-not (Confirm-UiAction "Permitir só Web/DNS para $source no firewall $fwName?")) { return }
+        $safe = ($source -replace '[^0-9A-Za-z_.-]','_')
+        $cmds = @()
+        $cmds += New-AppFirewallRuleCommands -Firewall $fwName -Rule $baseRule -Action 'accept' -Source $source -Destination '' -Protocol 'udp' -Port '53' -Description "APP_WEBDNS_${safe}_DNS_UDP"
+        $cmds += New-AppFirewallRuleCommands -Firewall $fwName -Rule ($baseRule+1) -Action 'accept' -Source $source -Destination '' -Protocol 'tcp' -Port '53' -Description "APP_WEBDNS_${safe}_DNS_TCP"
+        $cmds += New-AppFirewallRuleCommands -Firewall $fwName -Rule ($baseRule+2) -Action 'accept' -Source $source -Destination '' -Protocol 'tcp' -Port '80' -Description "APP_WEBDNS_${safe}_HTTP"
+        $cmds += New-AppFirewallRuleCommands -Firewall $fwName -Rule ($baseRule+3) -Action 'accept' -Source $source -Destination '' -Protocol 'tcp' -Port '443' -Description "APP_WEBDNS_${safe}_HTTPS"
+        $cmds += New-AppFirewallRuleCommands -Firewall $fwName -Rule ($baseRule+4) -Action 'drop' -Source $source -Destination '' -Protocol 'any' -Port '' -Description "APP_WEBDNS_${safe}_DROP" -EnableLog
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "FwWebDns_${fwName}_$baseRule"
+        Set-FirewallOutput -Content $out -Title 'Resultado do preset Web/DNS'
+        Refresh-AppManagedFirewallRules | Out-Null
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+$btnFwBlockPort.Add_Click({
+    try {
+        $fwName = $txtFwName.Text.Trim(); if (-not $fwName) { $fwName = 'LAN_IN' }
+        $rule = [int]($txtFwRule.Text.Trim())
+        $source = $txtFwSource.Text.Trim()
+        $proto = if ($cmbFwProto.SelectedItem) { $cmbFwProto.SelectedItem.Content.ToString() } else { 'tcp' }
+        $port = $txtFwPort.Text.Trim()
+        $dest = $txtFwDest.Text.Trim()
+        if (-not $source -or -not $port) { throw 'Informe origem e porta de destino.' }
+        $desc = "APP_BLOCK_PORT_" + (($source + '_' + $port) -replace '[^0-9A-Za-z_.-]','_')
+        if (-not (Confirm-UiAction "Bloquear porta/protocolo para $source no firewall $fwName?")) { return }
+        $cmds = New-AppFirewallRuleCommands -Firewall $fwName -Rule $rule -Action 'drop' -Source $source -Destination $dest -Protocol $proto -Port $port -Description $desc -EnableLog
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "FwBlockPort_${fwName}_$rule"
+        Set-FirewallOutput -Content $out -Title 'Resultado do bloqueio de porta/protocolo'
+        Refresh-AppManagedFirewallRules | Out-Null
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+$btnFwReadManaged.Add_Click({
+    try {
+        $items = Refresh-AppManagedFirewallRules
+        Set-FirewallOutput -Content (($items | Format-Table Firewall,Rule,Action,Source,Destination,Protocol,Port,Description -AutoSize | Out-String)) -Title 'Regras do app'
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+$btnFwRemoveManaged.Add_Click({
+    try {
+        $row = $dgFwManaged.SelectedItem
+        if ($null -eq $row) { throw 'Selecione uma regra na grade.' }
+        $fwName = [string]$row.Firewall
+        $rule = [string]$row.Rule
+        if (-not (Confirm-UiAction "Remover a regra $rule do firewall $fwName?")) { return }
+        $cmds = @("/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete firewall name $fwName rule $rule")
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "FwDelete_${fwName}_$rule"
+        Set-FirewallOutput -Content $out -Title 'Remoção de regra'
+        Refresh-AppManagedFirewallRules | Out-Null
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 0 }
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+if ($dgFwManaged) {
+    $dgFwManaged.Add_SelectionChanged({
+        try {
+            $sel = $dgFwManaged.SelectedItem
+            if ($null -ne $sel) { Set-FirewallFieldsFromRule $sel }
+        } catch {}
+    })
+}
+
+
+if ($btnTraceConntrack) { $btnTraceConntrack.Add_Click({ try { Show-FirewallTraceConntrack } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } }) }
+if ($btnTraceTcpdump) { $btnTraceTcpdump.Add_Click({ try { Show-FirewallTraceTcpdump } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } }) }
+if ($btnTraceSearch) { $btnTraceSearch.Add_Click({ try { Invoke-FirewallTraceSearch } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } }) }
+
+$btnQosPresetDefault.Add_Click({ try { Set-QosQuickProfile 'DEFAULT'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosPresetCalls.Add_Click({ try { Set-QosQuickProfile 'CALLS'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosPresetMeet.Add_Click({ try { Set-QosQuickProfile 'MEET'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosPresetGames.Add_Click({ try { Set-QosQuickProfile 'GAMES'; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
 
 $btnQosRead.Add_Click({
     try {
         Refresh-QosStatus
-        if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }
+try { Refresh-AppManagedFirewallRules | Out-Null } catch {}
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
@@ -2768,7 +3658,7 @@ $btnQosApply.Add_Click({
         Set-OutputText -Target $txtQosOut -Content $out -Title 'Resultado do QoS / Smart Queue'
         Write-AppLog "QoS aplicado: $policy / $iface / down ${downValue}mbit / up ${upValue}mbit"
         Refresh-QosStatus
-        if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
@@ -2781,7 +3671,7 @@ $btnQosRemove.Add_Click({
         Set-OutputText -Target $txtQosOut -Content $out -Title 'QoS removido'
         Write-AppLog "QoS removido: $policy"
         Refresh-QosStatus
-        if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
@@ -2791,7 +3681,7 @@ $btnQosFriendlyPreview.Add_Click({
 $btnQosFriendlyRead.Add_Click({
     try {
         Refresh-QosStatus
-        if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }
         if ($tabQosSub) { $tabQosSub.SelectedIndex = 0 }
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
@@ -2801,10 +3691,13 @@ $btnQosFriendlyApply.Add_Click({
 $btnQosFriendlyRemove.Add_Click({
     try { Invoke-QosFriendlyRemove } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
-$btnQosDevUseLease.Add_Click({ try { Apply-SelectedLeaseToQosDeviceFields } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
-$btnQosDevRead.Add_Click({ try { Refresh-QosDevicePolicies; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
-$btnQosDevApply.Add_Click({ try { Invoke-QosDeviceLimitApply; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
-$btnQosDevRemove.Add_Click({ try { Remove-QosDeviceLimit; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevUseLease.Add_Click({ try { Show-QosOnlineClients } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevRead.Add_Click({ try { Refresh-QosDevicePolicies; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevApply.Add_Click({ try { Invoke-QosDeviceLimitApply; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevRemove.Add_Click({ try { Remove-QosDeviceLimit; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+if ($btnP2PRead) { $btnP2PRead.Add_Click({ try { Refresh-P2PBlocks; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } }) }
+if ($btnP2PBlock) { $btnP2PBlock.Add_Click({ try { Apply-P2PBlockForDevice; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } }) }
+if ($btnP2PRemove) { $btnP2PRemove.Add_Click({ try { Remove-P2PBlockForDevice; if ($tabFwSub) { $tabFwSub.SelectedIndex = 3 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } }) }
 $dgQosDevicePolicies.Add_SelectionChanged({
     if ($dgQosDevicePolicies.SelectedItem) {
         $item = $dgQosDevicePolicies.SelectedItem
@@ -2915,6 +3808,40 @@ $btnDohOff.Add_Click({
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
 
+function Get-DpiOffloadStatusText {
+    $cfgLines = Get-EdgeConfigLines -ForceRefresh
+    $dpiEnabled = -not ($cfgLines | Where-Object { $_ -eq 'set system traffic-analysis dpi disable' })
+    $exportEnabled = -not ($cfgLines | Where-Object { $_ -eq 'set system traffic-analysis export disable' })
+    $hwnatEnabled = [bool]($cfgLines | Where-Object { $_ -eq 'set system offload hwnat enable' })
+    $ipsecEnabled = [bool]($cfgLines | Where-Object { $_ -eq 'set system offload ipsec enable' })
+    $offloadText = ''
+    try { $offloadText = Invoke-EdgeRouterCommand -Command 'show ubnt offload' -Silent } catch { $offloadText = $_.Exception.Message }
+    return @"
+Status DPI / Offload
+====================
+DPI: $(if($dpiEnabled){'habilitado'}else{'desabilitado'})
+Export: $(if($exportEnabled){'habilitado'}else{'desabilitado'})
+HWNAT Offload: $(if($hwnatEnabled){'habilitado'}else{'desabilitado'})
+IPsec Offload: $(if($ipsecEnabled){'habilitado'}else{'desabilitado'})
+
+O que cada modo faz
+===================
+Modo análise de tráfego:
+- habilita DPI
+- habilita export
+- melhor para investigar quem está consumindo banda
+
+Modo desempenho:
+- desabilita DPI
+- desabilita export
+- tenta reativar offload HWNAT/IPsec para o dia a dia
+
+Saída show ubnt offload
+=======================
+$offloadText
+"@
+}
+
 $btnPing.Add_Click({
     try {
         $targetHost = $txtToolHost.Text.Trim(); if (-not $targetHost) { throw 'Informe um host/IP.' }
@@ -2939,44 +3866,103 @@ $btnBackup.Add_Click({
 $btnOpenLogs.Add_Click({
     Start-Process explorer.exe $script:LogRoot
 })
+$btnPerfRead.Add_Click({
+    try {
+        Set-OutputText -Target $txtLog -Content (Get-DpiOffloadStatusText)
+        Write-AppLog 'Status DPI/Offload lido.'
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
 
-$txtIp.ToolTip = 'IP do EdgeRouter'
-$txtUser.ToolTip = 'Usuário SSH'
-$txtPass.ToolTip = 'Senha SSH'
-$btnDhcpLer.ToolTip = 'Lê os leases DHCP dinâmicos.'
-$btnDhcpLerReservas.ToolTip = 'Lê as reservas DHCP existentes na configuração.'
-$btnLbPreset5050.ToolTip = 'Preenche 50/50. Use Aplicar Pesos para colocar em balanceamento.'
-$btnLbFailoverWan1.ToolTip = 'Deixa a WAN1 como principal e a WAN2 como backup.'
-$btnLbFailoverWan2.ToolTip = 'Deixa a WAN2 como principal e a WAN1 como backup.'
-$cmbPbrMode.ToolTip = 'Escolha entre saída fixa ou preferência por WAN1/WAN2 com fallback opcional.'
-$btnPbrApply.ToolTip = 'Aplica a política escolhida para o IP informado.'
-$btnPbrReadPolicies.ToolTip = 'Carrega as políticas de PBR da chain informada para conferência e remoção.'
-$btnPbrRemovePolicy.ToolTip = 'Remove a política de PBR selecionada da chain e limpa a tabela se ela não estiver mais em uso.'
-$btnNatListar.ToolTip = 'Lista o port-forward atual do roteador.'
-$btnNatCriar.ToolTip = 'Cria uma regra de port-forward usando os campos preenchidos.'
-$btnFwListar.ToolTip = 'Lista as regras da chain informada e abre a subaba de saída.'
-$btnFwCriar.ToolTip = 'Cria uma nova regra simples de firewall na chain informada.'
-$btnQosRead.ToolTip = 'Lê a configuração QoS/Smart Queue e o status atual das filas.'
-$btnQosPresetDefault.ToolTip = 'Carrega um perfil neutro para Smart Queue.'
-$btnQosPresetCalls.ToolTip = 'Prepara um perfil rápido para chamadas e WhatsApp, mantendo a lógica simples do Smart Queue.'
-$btnQosPresetMeet.ToolTip = 'Prepara um perfil rápido para Teams, Meet e Zoom.'
-$btnQosPresetGames.ToolTip = 'Prepara um perfil rápido pensando em baixa latência para jogos.'
-$btnQosApply.ToolTip = 'Aplica um Smart Queue básico na interface WAN escolhida.'
-$btnQosRemove.ToolTip = 'Remove a política Smart Queue informada.'
-$btnQosFriendlyPreview.ToolTip = 'Calcula valores mais humanos para o QoS a partir da velocidade real do seu link.'
-$btnQosFriendlyRead.ToolTip = 'Lê o QoS atual e preenche a visão facilitada.'
-$btnQosFriendlyApply.ToolTip = 'Aplica o QoS usando a visão facilitada.'
-$btnQosFriendlyRemove.ToolTip = 'Remove o QoS a partir da visão facilitada.'
-$btnQosDevUseLease.ToolTip = 'Copia o IP do lease selecionado para a aba de limite por dispositivo.'
-$btnQosDevRead.ToolTip = 'Lê os limites por dispositivo criados pelo app usando Advanced Queue.'
-$btnQosDevApply.ToolTip = 'Aplica um limite por IP usando Advanced Queue global para download e upload.'
-$btnQosDevRemove.ToolTip = 'Remove o limite por dispositivo selecionado.'
-$btnDnsRulesList.ToolTip = 'Lista regras relacionadas a DNS, interceptação e DoH.'
-$btnDnsHijackOn.ToolTip = 'Cria NAT para interceptar DNS porta 53 na LAN.'
-$btnDnsHijackOff.ToolTip = 'Remove a regra NAT usada na interceptação DNS.'
-$btnDohOn.ToolTip = 'Ativa um bloqueio básico de DoH para endpoints comuns.'
-$btnDohOff.ToolTip = 'Remove o bloqueio básico de DoH configurado pelo app.'
+$btnPerfAnalysis.Add_Click({
+    try {
+        if (-not (Confirm-UiAction 'Ativar DPI/export para investigação de tráfego? Isso pode reduzir desempenho.')) { return }
+        $cmds = @(
+            '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete system traffic-analysis dpi disable',
+            '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete system traffic-analysis export disable'
+        )
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason 'dpi_analysis_mode'
+        Set-OutputText -Target $txtLog -Content ((Get-DpiOffloadStatusText) + "`r`n`r`n" + (Convert-OutputToText $out))
+        Write-AppLog 'Modo análise de tráfego ativado.'
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+$btnPerfPerformance.Add_Click({
+    try {
+        if (-not (Confirm-UiAction 'Ativar modo desempenho? Isso desliga DPI/export e tenta religar offload.')) { return }
+        $cmds = @(
+            '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set system traffic-analysis dpi disable',
+            '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set system traffic-analysis export disable',
+            '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set system offload hwnat enable',
+            '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set system offload ipsec enable'
+        )
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason 'dpi_performance_mode'
+        Set-OutputText -Target $txtLog -Content ((Get-DpiOffloadStatusText) + "`r`n`r`n" + (Convert-OutputToText $out))
+        Write-AppLog 'Modo desempenho ativado.'
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+
+
+Set-WpfToolTipSafe -Control $txtIp -Text 'IP do EdgeRouter'
+Set-WpfToolTipSafe -Control $txtUser -Text 'Usuário SSH'
+Set-WpfToolTipSafe -Control $txtPass -Text 'Senha SSH'
+Set-WpfToolTipSafe -Control $btnDhcpLer -Text 'Lê os leases DHCP dinâmicos.'
+Set-WpfToolTipSafe -Control $btnDhcpLerReservas -Text 'Lê as reservas DHCP existentes na configuração.'
+Set-WpfToolTipSafe -Control $btnLbPreset5050 -Text 'Preenche 50/50. Use Aplicar Pesos para colocar em balanceamento.'
+Set-WpfToolTipSafe -Control $btnLbFailoverWan1 -Text 'Deixa a WAN1 como principal e a WAN2 como backup.'
+Set-WpfToolTipSafe -Control $btnLbFailoverWan2 -Text 'Deixa a WAN2 como principal e a WAN1 como backup.'
+Set-WpfToolTipSafe -Control $cmbPbrMode -Text 'Escolha entre saída fixa ou preferência por WAN1/WAN2 com fallback opcional.'
+Set-WpfToolTipSafe -Control $btnPbrApply -Text 'Aplica a política escolhida para o IP informado.'
+Set-WpfToolTipSafe -Control $btnPbrReadPolicies -Text 'Carrega as políticas de PBR da chain informada para conferência e remoção.'
+Set-WpfToolTipSafe -Control $btnPbrRemovePolicy -Text 'Remove a política de PBR selecionada da chain e limpa a tabela se ela não estiver mais em uso.'
+Set-WpfToolTipSafe -Control $btnNatListar -Text 'Lista o port-forward atual do roteador.'
+Set-WpfToolTipSafe -Control $btnNatCriar -Text 'Cria uma regra de port-forward usando os campos preenchidos.'
+Set-WpfToolTipSafe -Control $btnFwListar -Text 'Lista as regras da chain informada e abre a subaba de saída.'
+Set-WpfToolTipSafe -Control $btnFwCriar -Text 'Cria uma nova regra simples de firewall na chain informada.'
+Set-WpfToolTipSafe -Control $txtFwDest -Text 'Opcional: IP ou rede de destino para a regra.'
+Set-WpfToolTipSafe -Control $cmbFwProto -Text 'Escolha o protocolo da regra. Em presets, o app preenche sozinho.'
+Set-WpfToolTipSafe -Control $txtFwPort -Text 'Porta de destino para bloqueio ou permissão específica.'
+Set-WpfToolTipSafe -Control $btnFwBlockInternet -Text 'Cria uma regra drop para cortar a internet deste IP.'
+Set-WpfToolTipSafe -Control $btnFwAllowWebDns -Text 'Permite DNS e HTTP/HTTPS para o IP e bloqueia o restante.'
+Set-WpfToolTipSafe -Control $btnFwBlockPort -Text 'Bloqueia uma porta/protocolo específica para o IP informado.'
+Set-WpfToolTipSafe -Control $btnFwReadManaged -Text 'Lista as regras de firewall criadas pelo app.'
+Set-WpfToolTipSafe -Control $btnFwRemoveManaged -Text 'Remove a regra selecionada na grade abaixo.'
+Set-WpfToolTipSafe -Control $dgFwManaged -Text 'Regras de firewall criadas pelo app. Clique em uma linha para carregar nos campos.'
+Set-WpfToolTipSafe -Control $txtFwName -Text 'Ruleset/chains: LAN_IN para clientes internos. WAN_IN/WAN_LOCAL para tráfego vindo da Internet.'
+Set-WpfToolTipSafe -Control $txtFwSource -Text 'IP interno de origem. É aqui que você informa a máquina da rede local que quer controlar.'
+Set-WpfToolTipSafe -Control $txtFwDest -Text 'IP ou rede de destino opcional. Use quando quiser bloquear só um destino específico.'
+Set-WpfToolTipSafe -Control $btnFwBlockInternet -Text 'Cria uma regra drop para o IP interno informado na origem.'
+Set-WpfToolTipSafe -Control $btnFwAllowWebDns -Text 'Permite DNS, HTTP e HTTPS para o IP de origem e bloqueia o restante.'
+Set-WpfToolTipSafe -Control $btnFwBlockPort -Text 'Bloqueia uma porta/protocolo específica para o IP de origem.'
+Set-WpfToolTipSafe -Control $btnTraceConntrack -Text 'Mostra as conexões ativas do IP alvo usando conntrack.'
+Set-WpfToolTipSafe -Control $btnTraceTcpdump -Text 'Faz uma captura rápida por alguns segundos para o IP alvo.'
+Set-WpfToolTipSafe -Control $btnPerfRead -Text 'Lê o estado atual do DPI, export e offload.'
+Set-WpfToolTipSafe -Control $btnPerfAnalysis -Text 'Liga DPI e export para investigar consumo por aplicação. Pode pesar no desempenho.'
+Set-WpfToolTipSafe -Control $btnPerfPerformance -Text 'Desliga DPI/export e tenta religar offload HWNAT/IPsec para melhorar o desempenho do dia a dia.'
+Set-WpfToolTipSafe -Control $btnTraceSearch -Text 'Abre o navegador pesquisando o destino/porta informados no campo ao lado.'
+Set-WpfToolTipSafe -Control $btnQosRead -Text 'Lê a configuração QoS/Smart Queue e o status atual das filas.'
+Set-WpfToolTipSafe -Control $btnQosPresetDefault -Text 'Carrega um perfil neutro para Smart Queue.'
+Set-WpfToolTipSafe -Control $btnQosPresetCalls -Text 'Prepara um perfil rápido para chamadas e WhatsApp, mantendo a lógica simples do Smart Queue.'
+Set-WpfToolTipSafe -Control $btnQosPresetMeet -Text 'Prepara um perfil rápido para Teams, Meet e Zoom.'
+Set-WpfToolTipSafe -Control $btnQosPresetGames -Text 'Prepara um perfil rápido pensando em baixa latência para jogos.'
+Set-WpfToolTipSafe -Control $btnQosApply -Text 'Aplica um Smart Queue básico na interface WAN escolhida.'
+Set-WpfToolTipSafe -Control $btnQosRemove -Text 'Remove a política Smart Queue informada.'
+Set-WpfToolTipSafe -Control $btnQosFriendlyPreview -Text 'Calcula valores mais humanos para o QoS a partir da velocidade real do seu link.'
+Set-WpfToolTipSafe -Control $btnQosFriendlyRead -Text 'Lê o QoS atual e preenche a visão facilitada.'
+Set-WpfToolTipSafe -Control $btnQosFriendlyApply -Text 'Aplica o QoS usando a visão facilitada.'
+Set-WpfToolTipSafe -Control $btnQosFriendlyRemove -Text 'Remove o QoS a partir da visão facilitada.'
+Set-WpfToolTipSafe -Control $btnQosDevUseLease -Text 'Lista clientes online agora usando ARP/neigh e mostra IP, MAC e nome no diagnóstico do QoS.'
+Set-WpfToolTipSafe -Control $btnQosDevRead -Text 'Lê os limites por dispositivo criados pelo app usando Advanced Queue.'
+Set-WpfToolTipSafe -Control $btnQosDevApply -Text 'Aplica um limite por IP usando Advanced Queue global para download e upload.'
+Set-WpfToolTipSafe -Control $btnQosDevRemove -Text 'Remove o limite por dispositivo selecionado.'
+Set-WpfToolTipSafe -Control $btnP2PRead -Text 'Lê os bloqueios P2P/Torrent criados pelo app para IPs específicos.'
+Set-WpfToolTipSafe -Control $btnP2PBlock -Text 'Cria um bloqueio por DPI categoria P2P para o IP informado, mantendo o resto da navegação liberado.'
+Set-WpfToolTipSafe -Control $btnP2PRemove -Text 'Remove o bloqueio P2P/Torrent criado pelo app para o IP informado.'
+Set-WpfToolTipSafe -Control $btnDnsRulesList -Text 'Lista regras relacionadas a DNS, interceptação e DoH.'
+Set-WpfToolTipSafe -Control $btnDnsHijackOn -Text 'Cria NAT para interceptar DNS porta 53 na LAN.'
+Set-WpfToolTipSafe -Control $btnDnsHijackOff -Text 'Remove a regra NAT usada na interceptação DNS.'
+Set-WpfToolTipSafe -Control $btnDohOn -Text 'Ativa um bloqueio básico de DoH para endpoints comuns.'
+Set-WpfToolTipSafe -Control $btnDohOff -Text 'Remove o bloqueio básico de DoH configurado pelo app.'
 
 Update-UiLanguage 'pt'
-Write-AppLog 'Protótipo WPF v13 carregado. Interface agora pode alternar entre Português e Inglês.'
+Write-AppLog 'Protótipo WPF v16 fix5 carregado. Interface agora pode alternar entre Português e Inglês.'
 $window.ShowDialog() | Out-Null
