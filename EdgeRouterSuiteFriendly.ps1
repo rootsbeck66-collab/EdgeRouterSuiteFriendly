@@ -62,7 +62,7 @@ function Set-OutputText {
 
 $script:CurrentLanguage = 'pt'
 $script:TranslationsPtToEn = [ordered]@{
-    'EdgeRouter Suite Friendly - WPF Preview v13 fix2' = 'EdgeRouter Suite Friendly - WPF Preview v13 fix2'
+    'EdgeRouter Suite Friendly - WPF Preview v16 QoS dispositivo AQ fix3' = 'EdgeRouter Suite Friendly - WPF Preview v16 QoS dispositivo AQ fix3'
     'Conexão do Roteador' = 'Router Connection'
     'Usuário:' = 'User:'
     'Senha:' = 'Password:'
@@ -120,6 +120,20 @@ $script:TranslationsPtToEn = [ordered]@{
     'Aplicar Smart Queue' = 'Apply Smart Queue'
     'Remover QoS' = 'Remove QoS'
     'Saída / diagnóstico QoS' = 'QoS output / diagnostics'
+    'Por dispositivo' = 'Per device'
+        'Limite download (Mbit):' = 'Download limit (Mbit):'
+    'Limite upload (Mbit):' = 'Upload limit (Mbit):'
+    'Banda total down (Mbit):' = 'Total down (Mbit):'
+    'Banda total up (Mbit):' = 'Total up (Mbit):'
+    'Nota:' = 'Note:'
+    'Ler limites' = 'Read limits'
+    'Aplicar limite' = 'Apply limit'
+    'Remover limite selecionado' = 'Remove selected limit'
+    'Limites por dispositivo' = 'Per-device limits'
+    'Limites por dispositivo (Advanced Queue)' = 'Per-device limits (Advanced Queue)'
+    'Este modo usa Advanced Queue global para limitar o IP em download e upload. Remova Smart Queue antes de usar.' = 'This mode uses global Advanced Queue to limit the IP on download and upload. Remove Smart Queue before using it.'
+    'Fila Down' = 'Down Queue'
+    'Fila Up' = 'Up Queue'
     'Sticky Sessions' = 'Sticky Sessions'
     'Grupo Load-Balance:' = 'Load-Balance Group:'
     'Ver Status' = 'View Status'
@@ -686,7 +700,7 @@ function Get-DnsRulesOverview {
 function Get-QosOverview {
     $lines = Get-EdgeConfigLines
     $filtered = foreach ($line in $lines) {
-        if ($line -match '^set traffic-policy smart-queue ' -or
+        if ($line -match '^set traffic-control smart-queue ' -or
             $line -match '^set traffic-policy shaper ' -or
             $line -match '^set interfaces .+ traffic-policy ') {
             $line
@@ -719,15 +733,16 @@ function Refresh-QosStatus {
     $down = $null
     $up = $null
     foreach ($line in $lines) {
-        if (-not $policy -and $line -match '^set traffic-policy smart-queue ([^\s]+) ') { $policy = $matches[1] }
-        if (-not $iface -and $line -match '^set traffic-policy smart-queue ([^\s]+) wan-interface ([^\s]+)$') { $iface = $matches[2] }
-        if (-not $down -and $line -match '^set traffic-policy smart-queue ([^\s]+) download rate ([^\s]+)$') { $down = $matches[2] }
-        if (-not $up -and $line -match '^set traffic-policy smart-queue ([^\s]+) upload rate ([^\s]+)$') { $up = $matches[2] }
+        if (-not $policy -and $line -match '^set traffic-control smart-queue ([^\s]+) ') { $policy = $matches[1] }
+        if (-not $iface -and $line -match '^set traffic-control smart-queue ([^\s]+) wan-interface ([^\s]+)$') { $iface = $matches[2] }
+        if (-not $down -and $line -match '^set traffic-control smart-queue ([^\s]+) download rate ([^\s]+)$') { $down = $matches[2] }
+        if (-not $up -and $line -match '^set traffic-control smart-queue ([^\s]+) upload rate ([^\s]+)$') { $up = $matches[2] }
     }
     if ($policy) { $txtQosPolicy.Text = $policy }
     if ($iface) { $txtQosIface.Text = $iface }
     if ($down) { $txtQosDown.Text = ($down -replace 'mbit$','' -replace 'kbit$','') }
     if ($up) { $txtQosUp.Text = ($up -replace 'mbit$','' -replace 'kbit$','') }
+    Sync-QosFriendlyFromTechnical
     Write-AppLog 'Leitura de QoS / Smart Queue executada.'
 }
 
@@ -756,6 +771,553 @@ function Set-QosQuickProfile {
     }
     Set-OutputText -Target $txtQosOut -Content $message -Title 'Perfil rápido QoS'
     Write-AppLog "Perfil rápido QoS carregado: $Profile"
+}
+
+
+function Get-QosFriendlyGoalKey {
+    param([object]$SelectedItem)
+    if ($null -eq $SelectedItem) { return 'BALANCED' }
+    $txt = if ($SelectedItem -is [string]) { [string]$SelectedItem } else { [string]$SelectedItem.Content }
+    switch ($txt) {
+        'Internet equilibrada' { 'BALANCED' }
+        'Balanced internet' { 'BALANCED' }
+        'Chamadas / WhatsApp' { 'CALLS' }
+        'Calls / WhatsApp' { 'CALLS' }
+        'Reuniões' { 'MEET' }
+        'Meetings' { 'MEET' }
+        'Jogos' { 'GAMES' }
+        'Games' { 'GAMES' }
+        default { 'BALANCED' }
+    }
+}
+
+function Get-QosFriendlyLevelFactor {
+    param([object]$SelectedItem)
+    if ($null -eq $SelectedItem) { return 0.94 }
+    $txt = if ($SelectedItem -is [string]) { [string]$SelectedItem } else { [string]$SelectedItem.Content }
+    switch ($txt) {
+        'Leve' { 0.97 }
+        'Light' { 0.97 }
+        'Média' { 0.94 }
+        'Medium' { 0.94 }
+        'Forte' { 0.90 }
+        'Strong' { 0.90 }
+        default { 0.94 }
+    }
+}
+
+function Get-QosFriendlyProfileInfo {
+    param([string]$GoalKey)
+    switch ($GoalKey) {
+        'CALLS' { return @{ Policy='SQ-VOZ'; Title='Chamadas / WhatsApp'; Note='Pensado para chamadas e áudio em tempo real. Não identifica o aplicativo; apenas deixa a fila mais favorável para baixa latência.' } }
+        'MEET' { return @{ Policy='SQ-REUNIOES'; Title='Reuniões'; Note='Bom para Teams, Meet, Zoom e uso de escritório, sempre com foco em estabilidade antes da velocidade máxima.' } }
+        'GAMES' { return @{ Policy='SQ-JOGOS'; Title='Jogos'; Note='Busca reduzir variação de latência. Em console/PC, combine com PBR se quiser manter o dispositivo em uma WAN específica.' } }
+        default { return @{ Policy='SQ-WAN'; Title='Internet equilibrada'; Note='Perfil geral para deixar o link mais estável sem complicar a configuração.' } }
+    }
+}
+
+function Sync-QosFriendlyFromTechnical {
+    try {
+        if ($null -eq $cmbQosFriendlyGoal) { return }
+        if ($txtQosIface -and $txtQosIface.Text) { $txtQosFriendlyIface.Text = $txtQosIface.Text }
+        if ($txtQosDown -and $txtQosDown.Text) {
+            $txtQosFriendlyDownReal.Text = $txtQosDown.Text
+            $txtQosFriendlyDownApply.Text = $txtQosDown.Text
+        }
+        if ($txtQosUp -and $txtQosUp.Text) {
+            $txtQosFriendlyUpReal.Text = $txtQosUp.Text
+            $txtQosFriendlyUpApply.Text = $txtQosUp.Text
+        }
+        if ($txtQosPolicy -and $txtQosPolicy.Text) {
+            $policy = $txtQosPolicy.Text.Trim().ToUpperInvariant()
+            switch -Regex ($policy) {
+                'VOZ|CALL' { $cmbQosFriendlyGoal.SelectedIndex = 1; break }
+                'REUN' { $cmbQosFriendlyGoal.SelectedIndex = 2; break }
+                'JOGO|GAME' { $cmbQosFriendlyGoal.SelectedIndex = 3; break }
+                default { $cmbQosFriendlyGoal.SelectedIndex = 0; break }
+            }
+            $txtQosFriendlyPolicy.Text = $txtQosPolicy.Text.Trim()
+        }
+        Update-QosFriendlyPreview
+    } catch {}
+}
+
+function Update-QosFriendlyPreview {
+    try {
+        if ($null -eq $txtQosFriendlyExplain) { return }
+        $goalKey = Get-QosFriendlyGoalKey $cmbQosFriendlyGoal.SelectedItem
+        $profile = Get-QosFriendlyProfileInfo $goalKey
+        $factor = Get-QosFriendlyLevelFactor $cmbQosFriendlyLevel.SelectedItem
+        $txtQosFriendlyPolicy.Text = $profile.Policy
+
+        $downRaw = ($txtQosFriendlyDownReal.Text.Trim() -replace ',','.')
+        $upRaw = ($txtQosFriendlyUpReal.Text.Trim() -replace ',','.')
+        $downNum = 0.0
+        $upNum = 0.0
+        [double]::TryParse($downRaw, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$downNum) | Out-Null
+        [double]::TryParse($upRaw, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$upNum) | Out-Null
+        if ($downNum -gt 0) { $txtQosFriendlyDownApply.Text = [string][math]::Round($downNum * $factor, 0) } else { $txtQosFriendlyDownApply.Text = '' }
+        if ($upNum -gt 0) { $txtQosFriendlyUpApply.Text = [string][math]::Round($upNum * $factor, 0) } else { $txtQosFriendlyUpApply.Text = '' }
+
+        $levelTxt = if ($cmbQosFriendlyLevel.SelectedItem) { [string]$cmbQosFriendlyLevel.SelectedItem.Content } else { 'Média' }
+        $ifaceTxt = $txtQosFriendlyIface.Text.Trim()
+        $explain = @()
+        $explain += "Perfil: $($profile.Title)"
+        if ($ifaceTxt) { $explain += "WAN: $ifaceTxt" }
+        if ($txtQosFriendlyDownApply.Text) { $explain += "Download a aplicar: $($txtQosFriendlyDownApply.Text) Mbit" }
+        if ($txtQosFriendlyUpApply.Text) { $explain += "Upload a aplicar: $($txtQosFriendlyUpApply.Text) Mbit" }
+        $explain += "Intensidade: $levelTxt"
+        $explain += ''
+        $explain += $profile.Note
+        $explain += 'Regra simples: use a velocidade real do link e deixe o app aplicar um pouco abaixo. Isso ajuda o roteador a organizar a fila.'
+        $txtQosFriendlyExplain.Text = ($explain -join "`r`n")
+    } catch {}
+}
+
+function Invoke-QosFriendlyApply {
+    Update-QosFriendlyPreview
+    $iface = $txtQosFriendlyIface.Text.Trim()
+    $policy = $txtQosFriendlyPolicy.Text.Trim()
+    $down = $txtQosFriendlyDownApply.Text.Trim()
+    $up = $txtQosFriendlyUpApply.Text.Trim()
+    if (-not $iface -or -not $policy -or -not $down -or -not $up) { throw 'Preencha WAN e velocidades reais para calcular os valores do QoS.' }
+    $txtQosPolicy.Text = $policy
+    $txtQosIface.Text = $iface
+    $txtQosDown.Text = $down
+    $txtQosUp.Text = $up
+    if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 }
+    $btnQosApply.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
+}
+
+function Invoke-QosFriendlyRemove {
+    $policy = $txtQosFriendlyPolicy.Text.Trim()
+    if (-not $policy) { $policy = $txtQosPolicy.Text.Trim() }
+    if (-not $policy) { throw 'Não há política QoS informada para remover.' }
+    $txtQosPolicy.Text = $policy
+    if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 }
+    $btnQosRemove.RaiseEvent((New-Object System.Windows.RoutedEventArgs([System.Windows.Controls.Button]::ClickEvent)))
+}
+
+
+function Get-InterfacePathParts {
+    param([string]$Interface)
+    if ([string]::IsNullOrWhiteSpace($Interface)) { throw 'Interface vazia.' }
+    $name = $Interface.Trim()
+    if ($name -match '^eth') { return @('ethernet', $name) }
+    if ($name -match '^switch') { return @('switch', $name) }
+    if ($name -match '^pppoe') { return @('pppoe', $name) }
+    return @('ethernet', $name)
+}
+
+function Get-QosDevicePolicyToken {
+    param([string]$IpAddress)
+    return (($IpAddress.Trim() -replace '[^0-9A-Za-z]+','-').ToUpperInvariant())
+}
+
+function Test-MbitValue {
+    param([string]$Value)
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    return ($Value.Trim() -match '^\d+(\.\d+)?$')
+}
+
+function Get-QosAdvancedDescription {
+    param(
+        [string]$Direction,
+        [string]$IpAddress,
+        [string]$Note
+    )
+    $noteNorm = Normalize-EdgeName -Value $Note -Default 'device_limit'
+    return "DEVAQ $Direction $IpAddress $noteNorm"
+}
+
+function Get-QosDeviceQueueTypeNames {
+    param([string]$IpAddress)
+    $token = Get-QosDevicePolicyToken -IpAddress $IpAddress
+    return @{
+        Down = "DEVAQ-D-$token"
+        Up = "DEVAQ-U-$token"
+    }
+}
+
+function Get-QosDeviceAdvancedState {
+    $cfg = Get-EdgeConfigCommandsText
+    $state = [ordered]@{
+        RootBandwidth = ''
+        TotalDown = ''
+        TotalUp = ''
+        UsedLeafIds = @()
+        UsedFilterIds = @()
+        Entries = @{}
+        ForeignLines = (New-Object System.Collections.ArrayList)
+        HasAdvanced = $false
+        HasForeignAdvanced = $false
+    }
+
+    $queueMeta = @{}
+    $queueBandwidth = @{}
+    $filterMeta = @{}
+    $filterTarget = @{}
+    $advLines = @()
+
+    $queueTypeRates = @{}
+    foreach ($line in ($cfg -split "`r?`n")) {
+        if ($line -match '^set traffic-control advanced-queue ') {
+            $state.HasAdvanced = $true
+            $advLines += $line
+        }
+        if ($line -match '^set traffic-control advanced-queue root queue 1 bandwidth (\S+)$') {
+            $state.RootBandwidth = ($matches[1] -replace 'mbit$','')
+            continue
+        }
+        if ($line -match '^set traffic-control advanced-queue branch queue 10 bandwidth (\S+)$') {
+            $state.TotalDown = ($matches[1] -replace 'mbit$','')
+            continue
+        }
+        if ($line -match '^set traffic-control advanced-queue branch queue 20 bandwidth (\S+)$') {
+            $state.TotalUp = ($matches[1] -replace 'mbit$','')
+            continue
+        }
+        if ($line -match '^set traffic-control advanced-queue leaf queue (\d+) ') {
+            $state.UsedLeafIds += [int]$matches[1]
+        }
+        if ($line -match '^set traffic-control advanced-queue filters match (\d+) ') {
+            $state.UsedFilterIds += [int]$matches[1]
+        }
+        if ($line -match "^set traffic-control advanced-queue leaf queue (\d+) description '?DEVAQ (DOWN|UP) ([0-9.]+)(?: ([A-Za-z0-9._-]+))?'?$") {
+            $queueMeta[[int]$matches[1]] = [ordered]@{ Direction = $matches[2]; IP = $matches[3]; Note = $matches[4] }
+            continue
+        }
+        if ($line -match '^set traffic-control advanced-queue leaf queue (\d+) bandwidth (\S+)$') {
+            $queueBandwidth[[int]$matches[1]] = ($matches[2] -replace 'mbit$','')
+            continue
+        }
+        if ($line -match "^set traffic-control advanced-queue filters match (\d+) description '?DEVAQ (DOWN|UP) ([0-9.]+)(?: ([A-Za-z0-9._-]+))?'?$") {
+            $filterMeta[[int]$matches[1]] = [ordered]@{ Direction = $matches[2]; IP = $matches[3]; Note = $matches[4] }
+            continue
+        }
+        if ($line -match "^set traffic-control advanced-queue filters match (\d+) description '?DEVAQ ROOT (DOWN|UP) ([0-9.]+)(?: ([A-Za-z0-9._-]+))?'?$") {
+            $filterMeta[[int]$matches[1]] = [ordered]@{ Direction = ('ROOT_' + $matches[2]); IP = $matches[3]; Note = $matches[4] }
+            continue
+        }
+        if ($line -match '^set traffic-control advanced-queue filters match (\d+) target (\d+)$') {
+            $filterTarget[[int]$matches[1]] = [int]$matches[2]
+            continue
+        }
+        if ($line -match '^set traffic-control advanced-queue queue-type hfq (DEVAQ-[DU]-[A-Z0-9\-]+) max-rate (\S+)$') {
+            $queueTypeRates[$matches[1]] = ($matches[2] -replace 'mbit$','')
+            continue
+        }
+    }
+
+    foreach ($line in $advLines) {
+        if ($line -match '^set traffic-control advanced-queue (root|branch|leaf|filters|queue-type)$') { continue }
+        if ($line -match '^set traffic-control advanced-queue root queue 1 attach-to global$') { continue }
+        if ($line -match '^set traffic-control advanced-queue root queue 1 bandwidth \S+$') { continue }
+        if ($line -match '^set traffic-control advanced-queue root queue 1 description DEVAQ_ROOT$') { continue }
+        if ($line -match '^set traffic-control advanced-queue root queue 1 default queue \d+$') { continue }
+        if ($line -match '^set traffic-control advanced-queue branch queue 10 (bandwidth \S+|description DEVAQ_DOWNLOAD|parent 1|default queue \d+)$') { continue }
+        if ($line -match '^set traffic-control advanced-queue branch queue 20 (bandwidth \S+|description DEVAQ_UPLOAD|parent 1|default queue \d+)$') { continue }
+        if ($line -match "^set traffic-control advanced-queue leaf queue \d+ (bandwidth \S+|description '?DEVAQ (DOWN|UP) [0-9.]+(?: [A-Za-z0-9._-]+)?'?|parent (10|20)|queue-type DEVAQ-[DU]-[A-Z0-9\-]+)$") { continue }
+        if ($line -match '^set traffic-control advanced-queue queue-type hfq DEVAQ-[DU]-[A-Z0-9\-]+ (host-identifier (dip|sip)|max-rate \S+|subnet \S+)$') { continue }
+        if ($line -match "^set traffic-control advanced-queue filters match \d+ (attach-to (1|10|20)|description '?DEVAQ( ROOT)? (DOWN|UP) [0-9.]+(?: [A-Za-z0-9._-]+)?'?|ip (source|destination) address \S+|target \d+)$") { continue }
+        $state.HasForeignAdvanced = $true
+        [void]$state.ForeignLines.Add($line)
+    }
+
+    foreach ($qid in ($queueMeta.Keys | Sort-Object)) {
+        $meta = $queueMeta[$qid]
+        $ip = $meta.IP
+        if (-not $state.Entries.ContainsKey($ip)) {
+            $state.Entries[$ip] = [ordered]@{
+                IP = $ip
+                Download = ''
+                Upload = ''
+                TotalDown = $state.TotalDown
+                TotalUp = $state.TotalUp
+                DownQueue = ''
+                UpQueue = ''
+                DownFilter = ''
+                UpFilter = ''
+                DownRootFilter = ''
+                UpRootFilter = ''
+                Note = ''
+            }
+        }
+        $qtNames = Get-QosDeviceQueueTypeNames -IpAddress $ip
+        if ($meta.Direction -eq 'DOWN') {
+            $state.Entries[$ip].DownQueue = $qid
+            if ($queueTypeRates.ContainsKey($qtNames.Down)) { $state.Entries[$ip].Download = $queueTypeRates[$qtNames.Down] }
+            elseif ($queueBandwidth.ContainsKey($qid)) { $state.Entries[$ip].Download = $queueBandwidth[$qid] }
+        } else {
+            $state.Entries[$ip].UpQueue = $qid
+            if ($queueTypeRates.ContainsKey($qtNames.Up)) { $state.Entries[$ip].Upload = $queueTypeRates[$qtNames.Up] }
+            elseif ($queueBandwidth.ContainsKey($qid)) { $state.Entries[$ip].Upload = $queueBandwidth[$qid] }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($meta.Note)) { $state.Entries[$ip].Note = $meta.Note }
+    }
+
+    foreach ($fid in ($filterMeta.Keys | Sort-Object)) {
+        $meta = $filterMeta[$fid]
+        $ip = $meta.IP
+        if (-not $state.Entries.ContainsKey($ip)) {
+            $state.Entries[$ip] = [ordered]@{
+                IP = $ip
+                Download = ''
+                Upload = ''
+                TotalDown = $state.TotalDown
+                TotalUp = $state.TotalUp
+                DownQueue = ''
+                UpQueue = ''
+                DownFilter = ''
+                UpFilter = ''
+                DownRootFilter = ''
+                UpRootFilter = ''
+                Note = ''
+            }
+        }
+        switch ($meta.Direction) {
+            'DOWN' { $state.Entries[$ip].DownFilter = $fid }
+            'UP' { $state.Entries[$ip].UpFilter = $fid }
+            'ROOT_DOWN' { $state.Entries[$ip].DownRootFilter = $fid }
+            'ROOT_UP' { $state.Entries[$ip].UpRootFilter = $fid }
+        }
+        if (-not [string]::IsNullOrWhiteSpace($meta.Note)) { $state.Entries[$ip].Note = $meta.Note }
+        if ($filterTarget.ContainsKey($fid)) {
+            if ($meta.Direction -eq 'DOWN' -and -not $state.Entries[$ip].DownQueue) { $state.Entries[$ip].DownQueue = $filterTarget[$fid] }
+            if ($meta.Direction -eq 'UP' -and -not $state.Entries[$ip].UpQueue) { $state.Entries[$ip].UpQueue = $filterTarget[$fid] }
+        }
+    }
+
+    return $state
+}
+
+function Get-QosDevicePolicies {
+    $state = Get-QosDeviceAdvancedState
+    $items = New-Object System.Collections.ArrayList
+    foreach ($key in ($state.Entries.Keys | Sort-Object)) {
+        [void]$items.Add([pscustomobject]$state.Entries[$key])
+    }
+    return @($items)
+}
+
+function Refresh-QosDevicePolicies {
+    $state = Get-QosDeviceAdvancedState
+    $items = @(Get-QosDevicePolicies)
+    $dgQosDevicePolicies.ItemsSource = $items
+    if ($items.Count -eq 0) {
+        $summary = "Nenhum limite por dispositivo encontrado.`r`n`r`nEste modo usa Advanced Queue global para limitar upload e download por IP."
+        if ($state.HasForeignAdvanced -and $state.ForeignLines.Count -gt 0) {
+            $summary += "`r`n`r`nLinhas Advanced Queue não reconhecidas pelo app:`r`n" + (($state.ForeignLines | Select-Object -First 8) -join "`r`n")
+        }
+        Set-OutputText -Target $txtQosOut -Content $summary -Title 'QoS por dispositivo'
+        Write-AppLog 'Nenhum limite por dispositivo encontrado.'
+    } else {
+        $summary = @(
+            "Modo: Advanced Queue global por IP",
+            "Políticas encontradas: $($items.Count)",
+            "Banda total download: $($state.TotalDown)",
+            "Banda total upload: $($state.TotalUp)"
+        ) -join "`r`n"
+        Set-OutputText -Target $txtQosOut -Content $summary -Title 'QoS por dispositivo'
+        Write-AppLog "Limites por dispositivo carregados: $($items.Count)"
+    }
+}
+
+function Apply-SelectedLeaseToQosDeviceFields {
+    if ($dgPbrLeases -and $dgPbrLeases.SelectedItem) { $txtQosDevIp.Text = [string]$dgPbrLeases.SelectedItem.IP; return }
+    if ($dgDhcpLeases -and $dgDhcpLeases.SelectedItem) { $txtQosDevIp.Text = [string]$dgDhcpLeases.SelectedItem.IP; return }
+}
+
+function Get-NextFreeNumericId {
+    param(
+        [int[]]$UsedIds,
+        [int]$Start,
+        [int]$End
+    )
+    $used = @($UsedIds | Sort-Object -Unique)
+    for ($i = $Start; $i -le $End; $i++) {
+        if ($used -notcontains $i) { return $i }
+    }
+    throw "Não há IDs livres entre $Start e $End para criar a política."
+}
+
+function Clear-QosDeviceAppAdvancedInfrastructure {
+    $cfgLines = Get-EdgeConfigLines
+    $cmds = @()
+
+    foreach ($line in $cfgLines) {
+        if ($line -match '^set traffic-control advanced-queue filters match (\d+) description ''?DEVAQ') {
+            $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue filters match $($matches[1])"
+        }
+        elseif ($line -match '^set traffic-control advanced-queue leaf queue (\d+) description ''?DEVAQ') {
+            $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue leaf queue $($matches[1])"
+        }
+        elseif ($line -match '^set traffic-control advanced-queue queue-type hfq (DEVAQ-[DU]-[A-Z0-9\-]+) ') {
+            $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue queue-type hfq $($matches[1])"
+        }
+    }
+
+    $cmds += @(
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue branch queue 10',
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue branch queue 20',
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue root queue 1'
+    )
+
+    $cmds = @($cmds | Where-Object { -not [string]::IsNullOrWhiteSpace($_) } | Sort-Object -Unique)
+    if ($cmds.Count -gt 0) {
+        $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason 'QOS_DEVICE_AQ_CLEAN_INFRA'
+        Write-AppLog 'Infraestrutura Advanced Queue do app foi limpa para reaplicar o limite por dispositivo.'
+        return $out
+    }
+    return ''
+}
+
+function Invoke-QosDeviceLimitApply {
+    $ipDev = $txtQosDevIp.Text.Trim()
+    $downLimit = $txtQosDevDown.Text.Trim()
+    $upLimit = $txtQosDevUp.Text.Trim()
+    $totalDown = $txtQosDevTotalDown.Text.Trim()
+    $totalUp = $txtQosDevTotalUp.Text.Trim()
+    $note = Normalize-EdgeName -Value $txtQosDevNote.Text.Trim() -Default 'device_limit'
+
+    if (-not (Test-IPv4Address $ipDev)) { throw 'IP interno inválido.' }
+    foreach ($v in @($downLimit,$upLimit,$totalDown,$totalUp)) {
+        if (-not (Test-MbitValue $v)) { throw 'Preencha limites e banda total com números válidos.' }
+    }
+    if ([double]$downLimit -gt [double]$totalDown) { throw 'O limite de download não pode ser maior que a banda total de download.' }
+    if ([double]$upLimit -gt [double]$totalUp) { throw 'O limite de upload não pode ser maior que a banda total de upload.' }
+
+    $cfgLines = Get-EdgeConfigLines
+    if ($cfgLines | Where-Object { $_ -match '^set traffic-control smart-queue ' }) { throw 'Remova o Smart Queue antes de usar limite por dispositivo.' }
+
+    $state = Get-QosDeviceAdvancedState
+    if ($state.HasForeignAdvanced) {
+        $foreignOnlyInfrastructure = ($state.Entries.Count -eq 0 -and $state.ForeignLines.Count -gt 0 -and @($state.ForeignLines | Where-Object { $_ -notmatch '^set traffic-control advanced-queue ((root|branch|leaf|filters|queue-type)|root queue 1 default queue \d+|branch queue (10|20) default queue \d+)$' }).Count -eq 0)
+        $looksLikeOrphanAppState = ($state.Entries.Count -eq 0 -and (@(Get-EdgeConfigLines) | Where-Object { $_ -match 'DEVAQ' }).Count -gt 0)
+        if ($foreignOnlyInfrastructure -or $looksLikeOrphanAppState) {
+            $cleanupOut = Clear-QosDeviceAppAdvancedInfrastructure
+            if (-not [string]::IsNullOrWhiteSpace($cleanupOut)) {
+                Set-OutputText -Target $txtQosOut -Content $cleanupOut -Title 'Infraestrutura QoS limpa'
+            }
+            $script:ConfigCommandsCache = $null
+            $state = Get-QosDeviceAdvancedState
+        }
+    }
+    if ($state.HasForeignAdvanced) {
+        $details = if ($state.ForeignLines.Count -gt 0) { "`r`n`r`nLinhas detectadas:`r`n" + (($state.ForeignLines | Select-Object -First 8) -join "`r`n") } else { '' }
+        throw ('Já existe um Advanced Queue que não foi criado por este app. Remova-o antes de usar este modo.' + $details)
+    }
+
+    $existing = $null
+    if ($state.Entries.ContainsKey($ipDev)) { $existing = [pscustomobject]$state.Entries[$ipDev] }
+
+    $usedLeaf = @($state.UsedLeafIds | Sort-Object -Unique)
+    $usedFilter = @($state.UsedFilterIds | Sort-Object -Unique)
+
+    foreach ($id in @($existing.DownQueue,$existing.UpQueue)) {
+        if ($id) { $usedLeaf = @($usedLeaf | Where-Object { $_ -ne [int]$id }) }
+    }
+    foreach ($id in @($existing.DownFilter,$existing.UpFilter,$existing.DownRootFilter,$existing.UpRootFilter)) {
+        if ($id) { $usedFilter = @($usedFilter | Where-Object { $_ -ne [int]$id }) }
+    }
+
+    $downQueue = if ($existing -and $existing.DownQueue) { [int]$existing.DownQueue } else { Get-NextFreeNumericId -UsedIds $usedLeaf -Start 300 -End 499 }
+    $upQueue = if ($existing -and $existing.UpQueue) { [int]$existing.UpQueue } else { Get-NextFreeNumericId -UsedIds (@($usedLeaf + $downQueue)) -Start 500 -End 699 }
+    $downRootFilter = if ($existing -and $existing.DownRootFilter) { [int]$existing.DownRootFilter } else { Get-NextFreeNumericId -UsedIds $usedFilter -Start 100 -End 199 }
+    $upRootFilter = if ($existing -and $existing.UpRootFilter) { [int]$existing.UpRootFilter } else { Get-NextFreeNumericId -UsedIds (@($usedFilter + $downRootFilter)) -Start 200 -End 299 }
+    $downFilter = if ($existing -and $existing.DownFilter) { [int]$existing.DownFilter } else { Get-NextFreeNumericId -UsedIds (@($usedFilter + $downRootFilter + $upRootFilter)) -Start 300 -End 499 }
+    $upFilter = if ($existing -and $existing.UpFilter) { [int]$existing.UpFilter } else { Get-NextFreeNumericId -UsedIds (@($usedFilter + $downRootFilter + $upRootFilter + $downFilter)) -Start 500 -End 699 }
+
+    $rootBandwidth = [math]::Ceiling(([double]$totalDown) + ([double]$totalUp))
+    $ipParts = $ipDev.Split('.')
+    $subnet24 = if ($ipParts.Count -eq 4) { '{0}.{1}.{2}.0/24' -f $ipParts[0],$ipParts[1],$ipParts[2] } else { $ipDev + '/32' }
+    $downDesc = Get-QosAdvancedDescription -Direction 'DOWN' -IpAddress $ipDev -Note $note
+    $upDesc = Get-QosAdvancedDescription -Direction 'UP' -IpAddress $ipDev -Note $note
+    $queueTypes = Get-QosDeviceQueueTypeNames -IpAddress $ipDev
+
+    $cmds = @()
+    if ($existing) {
+        foreach ($id in @($existing.DownFilter,$existing.UpFilter,$existing.DownRootFilter,$existing.UpRootFilter)) {
+            if ($id) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue filters match $id" }
+        }
+        foreach ($id in @($existing.DownQueue,$existing.UpQueue)) {
+            if ($id) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue leaf queue $id" }
+        }
+    }
+
+    $cmds += @(
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue root queue 1 attach-to global',
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue root queue 1 bandwidth ${rootBandwidth}mbit",
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue root queue 1 description DEVAQ_ROOT',
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue branch queue 10 bandwidth ${totalDown}mbit",
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue branch queue 10 description DEVAQ_DOWNLOAD',
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue branch queue 10 parent 1',
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue branch queue 20 bandwidth ${totalUp}mbit",
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue branch queue 20 description DEVAQ_UPLOAD',
+        '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue branch queue 20 parent 1',
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downRootFilter attach-to 1",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downRootFilter description 'DEVAQ ROOT DOWN $ipDev $note'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downRootFilter ip destination address $subnet24",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downRootFilter target 10",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upRootFilter attach-to 1",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upRootFilter description 'DEVAQ ROOT UP $ipDev $note'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upRootFilter ip source address $subnet24",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upRootFilter target 20",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue queue-type hfq $($queueTypes.Down) host-identifier dip",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue queue-type hfq $($queueTypes.Down) max-rate ${downLimit}mbit",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue queue-type hfq $($queueTypes.Down) subnet ${ipDev}/32",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue queue-type hfq $($queueTypes.Up) host-identifier sip",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue queue-type hfq $($queueTypes.Up) max-rate ${upLimit}mbit",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue queue-type hfq $($queueTypes.Up) subnet ${ipDev}/32",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $downQueue bandwidth ${downLimit}mbit",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $downQueue description '$downDesc'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $downQueue parent 10",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $downQueue queue-type $($queueTypes.Down)",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $upQueue bandwidth ${upLimit}mbit",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $upQueue description '$upDesc'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $upQueue parent 20",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue leaf queue $upQueue queue-type $($queueTypes.Up)",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downFilter attach-to 10",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downFilter description '$downDesc'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downFilter ip destination address ${ipDev}/32",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $downFilter target $downQueue",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upFilter attach-to 20",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upFilter description '$upDesc'",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upFilter ip source address ${ipDev}/32",
+        "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control advanced-queue filters match $upFilter target $upQueue"
+    )
+
+    $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "QOS_DEVICE_AQ_${ipDev}"
+    Set-OutputText -Target $txtQosOut -Content $out -Title 'Limite por dispositivo aplicado'
+    $script:ConfigCommandsCache = $null
+    Refresh-QosDevicePolicies
+    Write-AppLog "Limite por dispositivo via Advanced Queue aplicado para ${ipDev}: down ${downLimit} / up ${upLimit}"
+}
+
+function Remove-QosDeviceLimit {
+    $item = $dgQosDevicePolicies.SelectedItem
+    if ($null -eq $item) { throw 'Selecione um limite por dispositivo para remover.' }
+    $currentItems = @(Get-QosDevicePolicies)
+    $cmds = @()
+    foreach ($id in @($item.DownFilter,$item.UpFilter,$item.DownRootFilter,$item.UpRootFilter)) {
+        if ($id) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue filters match $id" }
+    }
+    foreach ($id in @($item.DownQueue,$item.UpQueue)) {
+        if ($id) { $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue leaf queue $id" }
+    }
+    $queueTypes = Get-QosDeviceQueueTypeNames -IpAddress $item.IP
+    $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue queue-type hfq $($queueTypes.Down)"
+    $cmds += "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue queue-type hfq $($queueTypes.Up)"
+    if ($currentItems.Count -le 1) {
+        $cmds += '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue branch queue 10'
+        $cmds += '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue branch queue 20'
+        $cmds += '/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control advanced-queue root queue 1'
+    }
+    $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "QOS_DEVICE_REMOVE_$($item.IP)"
+    Set-OutputText -Target $txtQosOut -Content $out -Title 'Limite por dispositivo removido'
+    $script:ConfigCommandsCache = $null
+    Refresh-QosDevicePolicies
+    Write-AppLog "Limite por dispositivo removido: $($item.IP)"
 }
 
 function Get-WanDefaultRouteHints {
@@ -1117,7 +1679,7 @@ function Refresh-DnsBlockedDomains {
 [xml]$xaml = @"
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="EdgeRouter Suite Friendly - WPF Preview v13 fix2"
+        Title="EdgeRouter Suite Friendly - WPF Preview v16 QoS dispositivo AQ fix3"
         Width="1320" Height="920" MinWidth="1180" MinHeight="760"
         WindowStartupLocation="CenterScreen" Background="#FFF4F6F8">
     <DockPanel LastChildFill="True" Margin="10">
@@ -1362,7 +1924,7 @@ function Refresh-DnsBlockedDomains {
                             <TextBox x:Name="txtInIf" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="eth0"/>
                             <TextBlock Grid.Row="3" Text="Porta ext.:" VerticalAlignment="Center"/>
                             <TextBox x:Name="txtPortExt" Grid.Row="3" Grid.Column="1" Height="28" Margin="6,0,0,8"/>
-                            <TextBlock Grid.Row="4" Text="IP interno:" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Row="4" Text="IP Interno:" VerticalAlignment="Center"/>
                             <TextBox x:Name="txtIPInt" Grid.Row="4" Grid.Column="1" Height="28" Margin="6,0,0,8"/>
                             <TextBlock Grid.Row="5" Text="Porta int.:" VerticalAlignment="Center"/>
                             <TextBox x:Name="txtPortInt" Grid.Row="5" Grid.Column="1" Height="28" Margin="6,0,0,8"/>
@@ -1392,6 +1954,7 @@ function Refresh-DnsBlockedDomains {
                     </Border>
                 </Grid>
                         </TabItem>
+                        
                         <TabItem Header="QoS">
                             <Grid Margin="10">
                                 <Grid.ColumnDefinitions>
@@ -1400,45 +1963,163 @@ function Refresh-DnsBlockedDomains {
                                     <ColumnDefinition Width="1*"/>
                                 </Grid.ColumnDefinitions>
                                 <Border Grid.Column="0" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
-                                    <Grid>
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="*"/>
-                                        </Grid.RowDefinitions>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="120"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="QoS facilitado (Smart Queue + perfis rápidos)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
-                                        <TextBlock Grid.Row="1" Text="Política:" VerticalAlignment="Center"/>
-                                        <TextBox x:Name="txtQosPolicy" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="SQ-WAN"/>
-                                        <TextBlock Grid.Row="2" Text="Interface WAN:" VerticalAlignment="Center"/>
-                                        <TextBox x:Name="txtQosIface" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="eth4"/>
-                                        <TextBlock Grid.Row="3" Text="Download (Mbit):" VerticalAlignment="Center"/>
-                                        <TextBox x:Name="txtQosDown" Grid.Row="3" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="100"/>
-                                        <TextBlock Grid.Row="4" Text="Upload (Mbit):" VerticalAlignment="Center"/>
-                                        <TextBox x:Name="txtQosUp" Grid.Row="4" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="20"/>
-                                        <TextBlock Grid.Row="5" Grid.ColumnSpan="2" Text="Perfis rápidos" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,8"/>
-                                        <WrapPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,0,0,10">
-                                            <Button x:Name="btnQosPresetDefault" Content="Padrão" Width="100" Height="32" Margin="0,0,8,8" Background="#8FD3FF"/>
-                                            <Button x:Name="btnQosPresetCalls" Content="Voz / WhatsApp" Width="150" Height="32" Margin="0,0,8,8" Background="#F3E58A"/>
-                                            <Button x:Name="btnQosPresetMeet" Content="Reuniões" Width="120" Height="32" Margin="0,0,8,8" Background="#DDEEFF"/>
-                                            <Button x:Name="btnQosPresetGames" Content="Jogos" Width="100" Height="32" Margin="0,0,8,8" Background="#D9F5D1"/>
-                                        </WrapPanel>
-                                        <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Text="Os perfis rápidos deixam o Smart Queue mais pronto para uso. Para amarrar um dispositivo a uma WAN específica, use os atalhos de PBR na aba Balanceamento / PBR." Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,12"/>
-                                        <WrapPanel Grid.Row="8" Grid.ColumnSpan="2">
-                                            <Button x:Name="btnQosRead" Content="Ler QoS" Width="120" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
-                                            <Button x:Name="btnQosApply" Content="Aplicar Smart Queue" Width="170" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
-                                            <Button x:Name="btnQosRemove" Content="Remover QoS" Width="130" Height="34" Background="#F28585"/>
-                                        </WrapPanel>
-                                    </Grid>
+                                    <TabControl x:Name="tabQosSub">
+                                        <TabItem Header="Facilitado">
+                                            <Grid Margin="8">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="*"/>
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="160"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="160"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Row="0" Grid.ColumnSpan="4" Text="QoS explicado em linguagem humana" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="Objetivo:" VerticalAlignment="Center"/>
+                                                <ComboBox x:Name="cmbQosFriendlyGoal" Grid.Row="1" Grid.Column="1" Height="30" Margin="6,0,12,8">
+                                                    <ComboBoxItem Content="Internet equilibrada"/>
+                                                    <ComboBoxItem Content="Chamadas / WhatsApp"/>
+                                                    <ComboBoxItem Content="Reuniões"/>
+                                                    <ComboBoxItem Content="Jogos"/>
+                                                </ComboBox>
+                                                <TextBlock Grid.Row="1" Grid.Column="2" Text="Intensidade:" VerticalAlignment="Center"/>
+                                                <ComboBox x:Name="cmbQosFriendlyLevel" Grid.Row="1" Grid.Column="3" Height="30" Margin="6,0,0,8">
+                                                    <ComboBoxItem Content="Leve"/>
+                                                    <ComboBoxItem Content="Média"/>
+                                                    <ComboBoxItem Content="Forte"/>
+                                                </ComboBox>
+
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="WAN do link:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosFriendlyIface" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,12,8" Text="eth4"/>
+                                                <TextBlock Grid.Row="2" Grid.Column="2" Text="Nome da política:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosFriendlyPolicy" Grid.Row="2" Grid.Column="3" Height="28" Margin="6,0,0,8" IsReadOnly="True" Background="#F6F8FA"/>
+
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Velocidade real download:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosFriendlyDownReal" Grid.Row="3" Grid.Column="1" Height="28" Margin="6,0,12,8" Text="325"/>
+                                                <TextBlock Grid.Row="3" Grid.Column="2" Text="Aplicar download:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosFriendlyDownApply" Grid.Row="3" Grid.Column="3" Height="28" Margin="6,0,0,8" IsReadOnly="True" Background="#F6F8FA"/>
+
+                                                <TextBlock Grid.Row="4" Grid.Column="0" Text="Velocidade real upload:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosFriendlyUpReal" Grid.Row="4" Grid.Column="1" Height="28" Margin="6,0,12,8" Text="325"/>
+                                                <TextBlock Grid.Row="4" Grid.Column="2" Text="Aplicar upload:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosFriendlyUpApply" Grid.Row="4" Grid.Column="3" Height="28" Margin="6,0,0,8" IsReadOnly="True" Background="#F6F8FA"/>
+
+                                                <TextBlock Grid.Row="5" Grid.ColumnSpan="4" Text="O app calcula uma margem abaixo da velocidade real para o roteador conseguir organizar melhor a fila. Leve mantém mais banda; Forte prioriza mais estabilidade." Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,10"/>
+
+                                                <WrapPanel Grid.Row="6" Grid.ColumnSpan="4" Margin="0,0,0,10">
+                                                    <Button x:Name="btnQosFriendlyPreview" Content="Calcular" Width="110" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                                                    <Button x:Name="btnQosFriendlyRead" Content="Ler QoS Atual" Width="130" Height="34" Margin="0,0,8,0" Background="#DDEEFF"/>
+                                                    <Button x:Name="btnQosFriendlyApply" Content="Aplicar QoS Facilitado" Width="180" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
+                                                    <Button x:Name="btnQosFriendlyRemove" Content="Remover QoS" Width="130" Height="34" Background="#F28585"/>
+                                                </WrapPanel>
+
+                                                <TextBlock Grid.Row="7" Grid.ColumnSpan="4" Text="Resumo" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,8"/>
+                                                <TextBox x:Name="txtQosFriendlyExplain" Grid.Row="8" Grid.ColumnSpan="4" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Visible" IsReadOnly="True"/>
+                                            </Grid>
+                                        </TabItem>
+                                        <TabItem Header="Por dispositivo">
+                                            <Grid Margin="8">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="*"/>
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="170"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="170"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Row="0" Grid.ColumnSpan="4" Text="Limites por dispositivo (Advanced Queue)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="0" Text="IP Interno:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDevIp" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,12,8"/>
+                                                <TextBlock Grid.Row="1" Grid.Column="2" Text="Nota:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDevNote" Grid.Row="1" Grid.Column="3" Height="28" Margin="6,0,0,8" Text="device_limit"/>
+
+                                                <TextBlock Grid.Row="2" Grid.Column="0" Text="Limite download (Mbit):" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDevDown" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,12,8" Text="50"/>
+                                                <TextBlock Grid.Row="2" Grid.Column="2" Text="Limite upload (Mbit):" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDevUp" Grid.Row="2" Grid.Column="3" Height="28" Margin="6,0,0,8" Text="20"/>
+
+                                                <TextBlock Grid.Row="3" Grid.Column="0" Text="Banda total down (Mbit):" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDevTotalDown" Grid.Row="3" Grid.Column="1" Height="28" Margin="6,0,12,8" Text="325"/>
+                                                <TextBlock Grid.Row="3" Grid.Column="2" Text="Banda total up (Mbit):" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDevTotalUp" Grid.Row="3" Grid.Column="3" Height="28" Margin="6,0,0,8" Text="325"/>
+
+                                                <TextBlock Grid.Row="4" Grid.ColumnSpan="4" Text="Este modo usa Advanced Queue global para limitar o IP em download e upload. Remova Smart Queue antes de usar." Foreground="#666666" TextWrapping="Wrap" Margin="0,4,0,10"/>
+                                                <WrapPanel Grid.Row="5" Grid.ColumnSpan="4" Margin="0,0,0,10">
+                                                    <Button x:Name="btnQosDevUseLease" Content="Usar Lease Selecionado" Width="150" Height="34" Margin="0,0,8,0" Background="#F3E58A"/>
+                                                    <Button x:Name="btnQosDevRead" Content="Ler limites" Width="120" Height="34" Margin="0,0,8,0" Background="#DDEEFF"/>
+                                                    <Button x:Name="btnQosDevApply" Content="Aplicar limite" Width="140" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
+                                                    <Button x:Name="btnQosDevRemove" Content="Remover limite selecionado" Width="200" Height="34" Background="#F28585"/>
+                                                </WrapPanel>
+                                                <DataGrid x:Name="dgQosDevicePolicies" Grid.Row="6" Grid.ColumnSpan="4" AutoGenerateColumns="False" IsReadOnly="True" CanUserAddRows="False" SelectionMode="Single" FontFamily="Consolas" FontSize="13">
+                                                    <DataGrid.Columns>
+                                                        <DataGridTextColumn Header="IP" Binding="{Binding IP}" Width="120"/>
+                                                        <DataGridTextColumn Header="Download" Binding="{Binding Download}" Width="90"/>
+                                                        <DataGridTextColumn Header="Upload" Binding="{Binding Upload}" Width="90"/>
+                                                        <DataGridTextColumn Header="Fila Down" Binding="{Binding DownQueue}" Width="90"/>
+                                                        <DataGridTextColumn Header="Fila Up" Binding="{Binding UpQueue}" Width="90"/>
+                                                        <DataGridTextColumn Header="Nota" Binding="{Binding Note}" Width="*"/>
+                                                    </DataGrid.Columns>
+                                                </DataGrid>
+                                            </Grid>
+                                        </TabItem>
+                                        <TabItem Header="Técnico">
+                                            <Grid Margin="8">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="*"/>
+                                                </Grid.RowDefinitions>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="120"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Grid.Row="0" Grid.ColumnSpan="2" Text="QoS técnico (Smart Queue + perfis rápidos)" FontSize="16" FontWeight="SemiBold" Margin="0,0,0,10"/>
+                                                <TextBlock Grid.Row="1" Text="Política:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosPolicy" Grid.Row="1" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="SQ-WAN"/>
+                                                <TextBlock Grid.Row="2" Text="Interface WAN:" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosIface" Grid.Row="2" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="eth4"/>
+                                                <TextBlock Grid.Row="3" Text="Download (Mbit):" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosDown" Grid.Row="3" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="100"/>
+                                                <TextBlock Grid.Row="4" Text="Upload (Mbit):" VerticalAlignment="Center"/>
+                                                <TextBox x:Name="txtQosUp" Grid.Row="4" Grid.Column="1" Height="28" Margin="6,0,0,8" Text="20"/>
+                                                <TextBlock Grid.Row="5" Grid.ColumnSpan="2" Text="Perfis rápidos" FontSize="15" FontWeight="SemiBold" Margin="0,4,0,8"/>
+                                                <WrapPanel Grid.Row="6" Grid.ColumnSpan="2" Margin="0,0,0,10">
+                                                    <Button x:Name="btnQosPresetDefault" Content="Padrão" Width="100" Height="32" Margin="0,0,8,8" Background="#8FD3FF"/>
+                                                    <Button x:Name="btnQosPresetCalls" Content="Voz / WhatsApp" Width="150" Height="32" Margin="0,0,8,8" Background="#F3E58A"/>
+                                                    <Button x:Name="btnQosPresetMeet" Content="Reuniões" Width="120" Height="32" Margin="0,0,8,8" Background="#DDEEFF"/>
+                                                    <Button x:Name="btnQosPresetGames" Content="Jogos" Width="100" Height="32" Margin="0,0,8,8" Background="#D9F5D1"/>
+                                                </WrapPanel>
+                                                <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Text="Use esta aba se você quiser ver ou ajustar os valores técnicos diretamente." Foreground="#666666" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                                <WrapPanel Grid.Row="8" Grid.ColumnSpan="2">
+                                                    <Button x:Name="btnQosRead" Content="Ler QoS" Width="120" Height="34" Margin="0,0,8,0" Background="#8FD3FF"/>
+                                                    <Button x:Name="btnQosApply" Content="Aplicar Smart Queue" Width="170" Height="34" Margin="0,0,8,0" Background="#47C37C"/>
+                                                    <Button x:Name="btnQosRemove" Content="Remover QoS" Width="130" Height="34" Background="#F28585"/>
+                                                </WrapPanel>
+                                            </Grid>
+                                        </TabItem>
+                                    </TabControl>
                                 </Border>
                                 <Border Grid.Column="2" BorderThickness="1" BorderBrush="#D0D7DE" Background="White" Padding="10">
                                     <Grid>
@@ -1452,6 +2133,7 @@ function Refresh-DnsBlockedDomains {
                                 </Border>
                             </Grid>
                         </TabItem>
+
                         <TabItem Header="Saída / Diagnóstico">
                             <Grid Margin="10">
                                 <TextBox x:Name="txtFwOut" FontFamily="Consolas" FontSize="13" AcceptsReturn="True" TextWrapping="NoWrap" VerticalScrollBarVisibility="Visible" HorizontalScrollBarVisibility="Visible" IsReadOnly="True"/>
@@ -1741,7 +2423,7 @@ $names = @(
     'btnDashResumo','btnDashRede','btnDashLeases','txtDashOut',
     'btnDhcpLer','btnDhcpLerReservas','dgDhcpLeases','dgDhcpReservations','txtDhcpOut','txtPool','txtSubnet','txtHost','txtMac','txtIpFix','btnUsarLease','btnCriarReserva','btnRemoverReserva','btnLimparDhcp',
     'txtRuleNat','txtInIf','txtPortExt','txtIPInt','txtPortInt','cmbNatProto','txtDescNat','btnNatListar','btnNatCriar','txtNatOut',
-    'tabFwSub','txtFwName','txtFwRule','cmbFwAction','txtFwSource','txtFwDesc','btnFwListar','btnFwCriar','txtFwOut','txtQosPolicy','txtQosIface','txtQosDown','txtQosUp','btnQosPresetDefault','btnQosPresetCalls','btnQosPresetMeet','btnQosPresetGames','btnQosRead','btnQosApply','btnQosRemove','txtQosOut',
+    'tabFwSub','txtFwName','txtFwRule','cmbFwAction','txtFwSource','txtFwDesc','btnFwListar','btnFwCriar','txtFwOut','tabQosSub','cmbQosFriendlyGoal','cmbQosFriendlyLevel','txtQosFriendlyIface','txtQosFriendlyPolicy','txtQosFriendlyDownReal','txtQosFriendlyUpReal','txtQosFriendlyDownApply','txtQosFriendlyUpApply','txtQosFriendlyExplain','btnQosFriendlyPreview','btnQosFriendlyRead','btnQosFriendlyApply','btnQosFriendlyRemove','txtQosDevIp','txtQosDevDown','txtQosDevUp','txtQosDevTotalDown','txtQosDevTotalUp','txtQosDevNote','btnQosDevUseLease','btnQosDevRead','btnQosDevApply','btnQosDevRemove','dgQosDevicePolicies','txtQosPolicy','txtQosIface','txtQosDown','txtQosUp','btnQosPresetDefault','btnQosPresetCalls','btnQosPresetMeet','btnQosPresetGames','btnQosRead','btnQosApply','btnQosRemove','txtQosOut',
     'txtLbGroup','btnLbStatus','btnStickyOn','btnStickyOff','txtPbrRule','txtPbrIP','txtPbrWan','txtPbrTable','txtPbrModify','cmbPbrMode','btnPbrApply','chkPbrKillSwitch','txtLbWan1','txtLbWan2','txtLbWeight1','txtLbWeight2','btnLbPreset5050','btnLbApplyWeights','btnLbFailoverWan1','btnLbFailoverWan2','btnPbrLoadLeases','btnPbrUseLease','btnPbrReadPolicies','btnPbrRemovePolicy','dgPbrLeases','dgPbrPolicies','txtLbOut',
     'txtDnsDomain','btnDnsReadBlocked','btnBlockSite','btnUnblockSite','btnDnsRulesList','lstDnsDomains','txtDnsOut','txtDnsLan','txtDnsRouterIp','txtDnsHijackRule','btnDnsHijackOn','btnDnsHijackOff','txtDohRule','btnDohOn','btnDohOff',
     'txtToolHost','btnPing','btnDnsLookup','btnBackup','btnOpenLogs','txtLog'
@@ -1751,6 +2433,9 @@ foreach ($n in $names) { Set-Variable -Name $n -Value $window.FindName($n) -Scop
 if ($ip) { $txtIp.Text = $ip }
 if ($user) { $txtUser.Text = $user }
 if ($pass) { $txtPass.Password = $pass }
+if ($cmbQosFriendlyGoal -and $cmbQosFriendlyGoal.Items.Count -gt 0 -and $cmbQosFriendlyGoal.SelectedIndex -lt 0) { $cmbQosFriendlyGoal.SelectedIndex = 0 }
+if ($cmbQosFriendlyLevel -and $cmbQosFriendlyLevel.Items.Count -gt 0 -and $cmbQosFriendlyLevel.SelectedIndex -lt 0) { $cmbQosFriendlyLevel.SelectedIndex = 1 }
+Update-QosFriendlyPreview
 
 $btnLangToggle.Add_Click({ Toggle-UiLanguage })
 
@@ -2075,9 +2760,9 @@ $btnQosApply.Add_Click({
         $upValue = ($up -replace ',','.')
         if (-not (Confirm-UiAction "Aplicar Smart Queue $policy em $iface com ${downValue}mbit / ${upValue}mbit?")) { return }
         $cmds = @(
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-policy smart-queue $policy wan-interface $iface",
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-policy smart-queue $policy download rate ${downValue}mbit",
-            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-policy smart-queue $policy upload rate ${upValue}mbit"
+            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control smart-queue $policy wan-interface $iface",
+            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control smart-queue $policy download rate ${downValue}mbit",
+            "/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper set traffic-control smart-queue $policy upload rate ${upValue}mbit"
         )
         $out = Invoke-EdgeConfigCommand -Commands $cmds -Reason "QoS_${policy}"
         Set-OutputText -Target $txtQosOut -Content $out -Title 'Resultado do QoS / Smart Queue'
@@ -2092,13 +2777,50 @@ $btnQosRemove.Add_Click({
         $policy = $txtQosPolicy.Text.Trim()
         if (-not $policy) { throw 'Informe a política QoS.' }
         if (-not (Confirm-UiAction "Remover a política Smart Queue $policy?")) { return }
-        $out = Invoke-EdgeConfigCommand -Commands @("/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-policy smart-queue $policy") -Reason "Remove_QoS_${policy}"
+        $out = Invoke-EdgeConfigCommand -Commands @("/opt/vyatta/sbin/vyatta-cfg-cmd-wrapper delete traffic-control smart-queue $policy") -Reason "Remove_QoS_${policy}"
         Set-OutputText -Target $txtQosOut -Content $out -Title 'QoS removido'
         Write-AppLog "QoS removido: $policy"
         Refresh-QosStatus
         if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }
     } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
 })
+
+$btnQosFriendlyPreview.Add_Click({
+    try { Update-QosFriendlyPreview } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+$btnQosFriendlyRead.Add_Click({
+    try {
+        Refresh-QosStatus
+        if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }
+        if ($tabQosSub) { $tabQosSub.SelectedIndex = 0 }
+    } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+$btnQosFriendlyApply.Add_Click({
+    try { Invoke-QosFriendlyApply } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+$btnQosFriendlyRemove.Add_Click({
+    try { Invoke-QosFriendlyRemove } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' }
+})
+$btnQosDevUseLease.Add_Click({ try { Apply-SelectedLeaseToQosDeviceFields } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevRead.Add_Click({ try { Refresh-QosDevicePolicies; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevApply.Add_Click({ try { Invoke-QosDeviceLimitApply; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$btnQosDevRemove.Add_Click({ try { Remove-QosDeviceLimit; if ($tabFwSub) { $tabFwSub.SelectedIndex = 2 }; if ($tabQosSub) { $tabQosSub.SelectedIndex = 1 } } catch { Show-UiMessage $_.Exception.Message 'Erro' 'Error' } })
+$dgQosDevicePolicies.Add_SelectionChanged({
+    if ($dgQosDevicePolicies.SelectedItem) {
+        $item = $dgQosDevicePolicies.SelectedItem
+        $txtQosDevIp.Text = [string]$item.IP
+        $txtQosDevDown.Text = [string]$item.Download
+        $txtQosDevUp.Text = [string]$item.Upload
+        if ($item.TotalDown) { $txtQosDevTotalDown.Text = [string]$item.TotalDown }
+        if ($item.TotalUp) { $txtQosDevTotalUp.Text = [string]$item.TotalUp }
+        $txtQosDevNote.Text = [string]$item.Note
+    }
+})
+if ($cmbQosFriendlyGoal) { $cmbQosFriendlyGoal.Add_SelectionChanged({ try { Update-QosFriendlyPreview } catch {} }) }
+if ($cmbQosFriendlyLevel) { $cmbQosFriendlyLevel.Add_SelectionChanged({ try { Update-QosFriendlyPreview } catch {} }) }
+if ($txtQosFriendlyIface) { $txtQosFriendlyIface.Add_TextChanged({ try { Update-QosFriendlyPreview } catch {} }) }
+if ($txtQosFriendlyDownReal) { $txtQosFriendlyDownReal.Add_TextChanged({ try { Update-QosFriendlyPreview } catch {} }) }
+if ($txtQosFriendlyUpReal) { $txtQosFriendlyUpReal.Add_TextChanged({ try { Update-QosFriendlyPreview } catch {} }) }
 
 $btnDnsRulesList.Add_Click({
     try {
@@ -2241,6 +2963,14 @@ $btnQosPresetMeet.ToolTip = 'Prepara um perfil rápido para Teams, Meet e Zoom.'
 $btnQosPresetGames.ToolTip = 'Prepara um perfil rápido pensando em baixa latência para jogos.'
 $btnQosApply.ToolTip = 'Aplica um Smart Queue básico na interface WAN escolhida.'
 $btnQosRemove.ToolTip = 'Remove a política Smart Queue informada.'
+$btnQosFriendlyPreview.ToolTip = 'Calcula valores mais humanos para o QoS a partir da velocidade real do seu link.'
+$btnQosFriendlyRead.ToolTip = 'Lê o QoS atual e preenche a visão facilitada.'
+$btnQosFriendlyApply.ToolTip = 'Aplica o QoS usando a visão facilitada.'
+$btnQosFriendlyRemove.ToolTip = 'Remove o QoS a partir da visão facilitada.'
+$btnQosDevUseLease.ToolTip = 'Copia o IP do lease selecionado para a aba de limite por dispositivo.'
+$btnQosDevRead.ToolTip = 'Lê os limites por dispositivo criados pelo app usando Advanced Queue.'
+$btnQosDevApply.ToolTip = 'Aplica um limite por IP usando Advanced Queue global para download e upload.'
+$btnQosDevRemove.ToolTip = 'Remove o limite por dispositivo selecionado.'
 $btnDnsRulesList.ToolTip = 'Lista regras relacionadas a DNS, interceptação e DoH.'
 $btnDnsHijackOn.ToolTip = 'Cria NAT para interceptar DNS porta 53 na LAN.'
 $btnDnsHijackOff.ToolTip = 'Remove a regra NAT usada na interceptação DNS.'
